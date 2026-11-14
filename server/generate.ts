@@ -18,6 +18,7 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import mammoth from "mammoth";
 import { z } from "zod";
 import { lintSimulation } from "../shared/engine";
+import { keyFromLabel, PersonaSchema, type Persona, type PersonaTemplate } from "../shared/personas";
 import {
   ActionTypes,
   ConditionOps,
@@ -495,4 +496,93 @@ export async function alignElements(input: AlignInput) {
   if (message.stop_reason === "max_tokens") throw new Error("Too many elements to align in one pass.");
   if (!message.parsed_output) throw new Error("The model's reply could not be read.");
   return message.parsed_output.elements;
+}
+
+// ------------------------------------------------------------------ persona drafting
+
+const DraftPersonas = z.object({
+  personas: z.array(
+    z.object({
+      name: z.string(),
+      summary: z.string(),
+      backstory: z.string(),
+      values: z.array(z.object({ key: z.string(), value: z.string() })),
+      extra: z.array(z.object({ label: z.string(), value: z.string() })),
+      tables: z.array(z.object({ key: z.string(), rows: z.array(z.object({ cells: z.array(z.object({ key: z.string(), value: z.string() })) })) })),
+    }),
+  ),
+});
+
+const PERSONA_PROMPT = `You write realistic but entirely FICTIONAL customer personas for training simulations (support desks, banks, telecoms, retail, and so on). Trainees will look these people up in a simulated system and handle their requests, so every detail must be internally consistent.
+
+Rules:
+- Invent everything. Never use real people, real companies' customer data, or real account numbers. Use example.com / example.org email addresses, phone numbers in the 555-01xx range, and clearly made-up account, card and reference numbers (cards: only the last 4 digits).
+- Vary names, ages, backgrounds, temperaments and circumstances, unless the request says otherwise.
+- summary: one line a trainer can scan (who they are, what they want, their mood).
+- backstory: 80-150 words: their situation, what happened, what they want now, how they tend to communicate, and any detail a trainee could discover in their records.
+- values: give a value for EVERY template field, using the field's key. For "choice" fields use one of the listed options exactly. Money as a plain number (e.g. 212.40). Dates as YYYY-MM-DD, close to today's date given below.
+- tables: for each template table, 3-8 rows, most recent first, using the column keys. Make the records back up the backstory (e.g. the disputed charge appears in the bills).
+- extra: only details that matter to this persona and have no template field (may be empty).`;
+
+export interface PersonaDraftInput {
+  description: string;
+  count: number;
+  template: PersonaTemplate | null;
+}
+
+export async function draftPersonas(input: PersonaDraftInput, makeId: (prefix: string) => string): Promise<Persona[]> {
+  const t = input.template;
+  const templateText = t
+    ? `Template "${t.name}"${t.description ? ` (${t.description})` : ""}.\nFields:\n` +
+      t.fields.map((f) => `- ${f.key} (${f.label}; ${f.type}${f.options?.length ? `: one of ${f.options.join(" | ")}` : ""})`).join("\n") +
+      (t.tables.length
+        ? `\nTables:\n` + t.tables.map((x) => `- ${x.key} (${x.label}): columns ${x.columns.map((c) => `${c.key} (${c.label}; ${c.type})`).join(", ")}`).join("\n")
+        : "")
+    : "No template: put all account details in extra, and leave values and tables empty.";
+  const stream = getClient().beta.messages.stream({
+    model: MODEL,
+    max_tokens: 32000,
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    output_config: { effort: "medium", format: betaZodOutputFormat(DraftPersonas) },
+    system: PERSONA_PROMPT,
+    messages: [
+      {
+        role: "user",
+        content: `Today's date: ${new Date().toISOString().slice(0, 10)}\n${templateText}\n\nWrite ${input.count} persona${input.count === 1 ? "" : "s"}:\n<request>\n${input.description}\n</request>`,
+      },
+    ],
+  });
+  const message = await stream.finalMessage();
+  if (message.stop_reason === "refusal") throw new Error("The model declined this request.");
+  if (message.stop_reason === "max_tokens") throw new Error("Too many personas to write at once. Ask for fewer.");
+  if (!message.parsed_output) throw new Error("The model's reply could not be read.");
+
+  return personasFromDraft(message.parsed_output, t, makeId).slice(0, input.count);
+}
+
+/** Turn Claude's draft into valid personas: keep only the template's fields and tables; extra fields get keys. */
+export function personasFromDraft(draft: z.infer<typeof DraftPersonas>, t: PersonaTemplate | null, makeId: (prefix: string) => string): Persona[] {
+  const fieldKeys = new Set(t?.fields.map((f) => f.key) ?? []);
+  return draft.personas.map((d) =>
+    PersonaSchema.parse({
+      id: makeId("persona"),
+      name: d.name.slice(0, 100) || "Unnamed",
+      summary: d.summary.slice(0, 300),
+      backstory: d.backstory.slice(0, 5000),
+      templateId: t?.id ?? null,
+      values: Object.fromEntries(d.values.filter((v) => fieldKeys.has(v.key)).map((v) => [v.key, v.value.slice(0, 2000)])),
+      extra: d.extra
+        .filter((x) => x.label.trim())
+        .slice(0, 40)
+        .map((x) => ({ key: keyFromLabel(x.label), label: x.label.slice(0, 60), value: x.value.slice(0, 2000) }))
+        .filter((x, i, all) => !fieldKeys.has(x.key) && all.findIndex((y) => y.key === x.key) === i),
+      tables: Object.fromEntries(
+        (t?.tables ?? []).map((tbl) => {
+          const rows = d.tables.find((x) => x.key === tbl.key)?.rows ?? [];
+          return [tbl.key, rows.slice(0, 50).map((r) => Object.fromEntries(tbl.columns.map((c) => [c.key, (r.cells.find((x) => x.key === c.key)?.value ?? "").slice(0, 500)])))];
+        }),
+      ),
+    }),
+  );
 }

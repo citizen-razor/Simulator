@@ -412,3 +412,29 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .assignment.done { opacity: 0.85; }
 .assignment-note { background: var(--accent-soft); border-radius: 6px; padding: 6px 8px; margin: 8px 0 0; }
 @media (max-width: 640px) { .assignment { flex-direction: column; align-items: stretch; } }
+/* ---------- personas */
+.persona-item { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.25; }
+.persona-fields .field.wide { grid-column: 1 / -1; }
+.persona-fields .field input, .persona-fields .field select, .persona-fields .field textarea { width: 100%; }
+.table-scroll { overflow-x: auto; }
+.record-table td input, .record-table td select { width: 100%; min-width: 90px; }
+.key-row { margin-top: 4px; }
+.key-row input.mono { width: 160px; }
+.columns-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.column-chip { display: inline-flex; gap: 2px; align-items: center; border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; background: var(--surface); }
+.column-chip input { width: 110px; border: 0; }
+.column-chip select { border: 0; font-size: 12px; }
+.var-help { margin-top: 16px; }
+.var-help summary { cursor: pointer; color: var(--muted); }
+.var-help code.chip { font-size: 11px; }
+.drafts { margin-top: 12px; }
+.lib-list h4 { margin: 12px 4px 4px; }
+.role-input { max-width: 110px; flex: 0 0 110px !important; }
+.role-name { min-width: 80px; }
+.sim-table-wrap { width: 100%; height: 100%; overflow: auto; background: #fff; border: 1px solid #dde1e7; border-radius: 5px; }
+.sim-table { width: 100%; border-collapse: collapse; font-size: 0.85em; color: #1b1f24; }
+.sim-table th { position: sticky; top: 0; background: #f0f2f5; text-align: left; font-weight: 600; padding: 0.35em 0.6em; border-bottom: 1px solid #dde1e7; }
+.sim-table td { padding: 0.3em 0.6em; border-bottom: 1px solid #eef0f3; white-space: nowrap; }
+.sim-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.sim-table-empty { padding: 0.6em; color: #5f6b7a; font-size: 0.85em; }
+.edit-el.kind-table { border-color: rgba(156, 54, 181, 0.8); background: rgba(156, 54, 181, 0.08); }

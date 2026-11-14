@@ -64,6 +64,7 @@ export const ElementKinds = [
   "select",
   "checkbox",
   "text",
+  "table",
 ] as const;
 export type ElementKind = (typeof ElementKinds)[number];
 /** Kinds whose value the trainee edits (stored in a variable). */
@@ -81,6 +82,8 @@ export const ElementSchema = z.object({
   bindVar: z.string().optional(),
   /** Only shown when all conditions pass. */
   visibleIf: z.array(ConditionSchema).optional(),
+  /** table: the variable holding the table, e.g. "customer.orders" (from a persona). */
+  tableSource: z.string().optional(),
   rules: z.array(RuleSchema).default([]),
 });
 
@@ -142,6 +145,8 @@ export const ScenarioSchema = z.object({
   gradingSchemeId: z.string().nullable().default(null),
   /** Use fresh random values (Simulation.randomData) on each run. Off = always the initial values. */
   randomize: z.boolean().default(true),
+  /** Use a different persona for a role in this scenario (null = no persona for that role). */
+  personaOverrides: z.array(z.object({ role: z.string(), personaId: z.string().nullable() })).default([]),
 });
 
 /** Per-simulation targets for a grading scheme's screen/state checks (see shared/library.ts). */
@@ -162,6 +167,8 @@ export const SimulationSchema = z.object({
   scenarios: z.array(ScenarioSchema).default([]),
   /** Tag ids from the topic/tag library. */
   tagIds: z.array(z.string()).default([]),
+  /** Personas from the persona library, by role (e.g. "customer"). Their details become {{role.field}} variables. */
+  personas: z.array(z.object({ role: z.string().regex(/^[a-z][a-z0-9_]{0,29}$/), personaId: z.string() })).default([]),
   /** Random value generators for variables, applied at the start of every run (see shared/random.ts). */
   randomData: z.array(RandomVarSchema).default([]),
   /** Grading scheme from the grading library (null = Standard), plus per-simulation check targets. */

@@ -161,13 +161,21 @@ const describe = (el: SimElement) => `"${el.label || el.id}"`;
 // ---------------------------------------------------------------- session
 
 /**
- * Start a run. Variables get their initial values, then this run's random values (unless
- * the scenario turns randomising off), then the scenario's starting-state overrides, which
- * may themselves use {{templates}} of the random values.
+ * Start a run. Variables get their initial values, then the personas' details
+ * (`personaVars`, see shared/personas.ts), then this run's random values (unless the
+ * scenario turns randomising off), then the scenario's starting-state overrides, which
+ * may themselves use {{templates}} of any of those.
  */
-export function createSession(sim: Simulation, scenarioId: string | null, now = Date.now(), seed = newSeed()): SessionState {
+export function createSession(
+  sim: Simulation,
+  scenarioId: string | null,
+  now = Date.now(),
+  seed = newSeed(),
+  personaVars: Record<string, string> = {},
+): SessionState {
   const vars: Record<string, string> = {};
   for (const v of sim.variables) vars[v.name] = v.initial ?? "";
+  Object.assign(vars, personaVars);
   const sc = getScenario(sim, scenarioId);
   const generated = !sc || sc.randomize ? generateValues(sim.randomData, seed, new Date(now)) : {};
   Object.assign(vars, generated);
@@ -297,7 +305,7 @@ export function interact(
   const feedback: Feedback[] = [];
   const screen = getScreen(sim, prev.screenId);
   const el = screen?.elements.find((e) => e.id === ev.elementId);
-  if (!screen || !el || !isVisible(el, prev.vars) || el.kind === "text") {
+  if (!screen || !el || !isVisible(el, prev.vars) || el.kind === "text" || el.kind === "table") {
     return { state: prev, feedback, blocked: false, completedStep: null };
   }
 
@@ -438,6 +446,14 @@ export function lintSimulation(sim: Simulation): string[] {
     if ((a.type === "set" || a.type === "toggle") && a.var && !varNames.has(a.var)) {
       issues.push(`"${e.label}" on ${s.name} sets undeclared variable "${a.var}".`);
     }
+  }
+  for (const s of sim.screens) for (const e of s.elements) {
+    if (e.kind === "table" && !e.tableSource) issues.push(`Table "${e.label}" on ${s.name} doesn't say which table to show.`);
+  }
+  const roles = new Set<string>();
+  for (const p of sim.personas) {
+    if (roles.has(p.role)) issues.push(`The persona role "${p.role}" is set twice.`);
+    roles.add(p.role);
   }
   for (const g of sim.randomData) {
     if (!varNames.has(g.var)) issues.push(`Random values are set for "${g.var}", which isn't a declared variable.`);

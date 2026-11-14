@@ -6,8 +6,10 @@ import { BINDABLE_CHECKS, DEFAULT_SCHEME_ID, type Binding, type GradingScheme, t
 import { boundCheck, unboundChecks } from "../../shared/grading";
 import type { Condition, Simulation } from "../../shared/schema";
 import { ConditionsEditor } from "./Inspector";
+import { DEFAULT_ROLE, personaVariableNames, ROLE_PATTERN, type PersonaLibrary } from "../../shared/personas";
 
-export function SimSettings({ sim, taxonomy, schemes, update }: {
+export function SimSettings({ sim, taxonomy, schemes, personaLib, update }: {
+  personaLib: PersonaLibrary | null;
   sim: Simulation;
   taxonomy: Taxonomy | null;
   schemes: GradingScheme[] | null;
@@ -74,6 +76,59 @@ export function SimSettings({ sim, taxonomy, schemes, update }: {
             </p>
           )}
         </div>
+      )}
+
+      <h4>Personas</h4>
+      {!personaLib ? (
+        <p className="muted small">Loading…</p>
+      ) : personaLib.personas.length === 0 ? (
+        <p className="muted small">No personas yet. An admin can create them in <a href="#/libraries/personas">Libraries → Personas</a>.</p>
+      ) : (
+        <>
+          <p className="muted small">
+            Link personas to roles. Their details then fill this simulation's screens, e.g. <code>{"{{customer.name}}"}</code>. Scenarios can use a different persona.
+          </p>
+          {sim.personas.map((link, i) => {
+            const persona = personaLib.personas.find((p) => p.id === link.personaId);
+            const tpl = personaLib.templates.find((t) => t.id === persona?.templateId) ?? null;
+            const roleOk = ROLE_PATTERN.test(link.role);
+            return (
+              <div key={i} className="criterion">
+                <div className="cond-row">
+                  <input
+                    className="mono role-input"
+                    value={link.role}
+                    aria-label="Role"
+                    onChange={(e) => update((d) => { d.personas[i].role = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""); }, `role-${i}`)}
+                  />
+                  <select value={link.personaId} aria-label={`Persona for ${link.role}`} onChange={(e) => update((d) => { d.personas[i].personaId = e.target.value; })}>
+                    {!persona && <option value={link.personaId}>(missing persona)</option>}
+                    {personaLib.personas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <button className="link-btn" aria-label="Remove role" onClick={() => update((d) => { d.personas.splice(i, 1); })}>✕</button>
+                </div>
+                {!roleOk && <small className="text-error">Roles are lower-case letters, numbers and _, starting with a letter.</small>}
+                {persona && (
+                  <details className="var-help">
+                    <summary className="small">{persona.summary || "Variables"}</summary>
+                    <div className="tag-row">{personaVariableNames(link.role, persona, tpl).map((v) => <code key={v} className="chip">{`{{${v}}}`}</code>)}</div>
+                  </details>
+                )}
+              </div>
+            );
+          })}
+          <button
+            className="btn sm"
+            onClick={() =>
+              update((d) => {
+                const role = d.personas.some((p) => p.role === DEFAULT_ROLE) ? `person${d.personas.length + 1}` : DEFAULT_ROLE;
+                d.personas.push({ role, personaId: personaLib.personas[0].id });
+              })
+            }
+          >
+            + Link a persona
+          </button>
+        </>
       )}
 
       <h4>Grading</h4>

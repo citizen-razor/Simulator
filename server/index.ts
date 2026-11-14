@@ -23,6 +23,7 @@ import {
   AlignInputSchema,
   alignElements,
   describeApiError,
+  draftPersonas,
   generateSimulation,
   GenerateInputSchema,
   MODEL,
@@ -55,6 +56,11 @@ import {
   getAssignment,
   createAssignments,
   deleteAssignment,
+  readPersonas,
+  savePersonaTemplate,
+  deletePersonaTemplate,
+  savePersona,
+  deletePersona,
 } from "./storage";
 import { buildBundle, exportFileName, importBundle, ImportError } from "./transfer";
 import { adminPinRequired, checkPin, isAdminRequest, requireAdmin } from "./admin";
@@ -143,8 +149,8 @@ app.get(
   "/api/simulations/:id/export",
   route(async (req, res) => {
     const sim = await getSimulation(param(req, "id"));
-    const [taxonomy, grading] = await Promise.all([readTaxonomy(), readGrading()]);
-    const { bundle, missing } = await buildBundle(sim, readAsset, { taxonomy, schemes: grading.schemes });
+    const [taxonomy, grading, personas] = await Promise.all([readTaxonomy(), readGrading(), readPersonas()]);
+    const { bundle, missing } = await buildBundle(sim, readAsset, { taxonomy, schemes: grading.schemes, personas });
     if (missing.length) res.setHeader("X-Missing-Images", String(missing.length));
     res.setHeader("Content-Disposition", `attachment; filename="${exportFileName(sim.title)}"`);
     res.type("application/json").send(JSON.stringify(bundle));
@@ -155,16 +161,19 @@ app.post(
   "/api/import",
   route(async (req, res) => {
     try {
-      const [taxonomy, grading] = await Promise.all([readTaxonomy(), readGrading()]);
+      const [taxonomy, grading, personas] = await Promise.all([readTaxonomy(), readGrading(), readPersonas()]);
       const { simulation, warnings, created } = await importBundle(req.body, saveAsset, newId(), {
         taxonomy,
         schemes: grading.schemes,
+        personas,
         canCreate: isAdminRequest(req),
         makeId: newId,
       });
       // Save library additions first so the simulation never points at something missing.
       if (created.taxonomy) await saveTaxonomy(created.taxonomy);
       for (const scheme of created.schemes) await saveScheme(scheme);
+      for (const tpl of created.personaTemplates) await savePersonaTemplate(tpl);
+      for (const persona of created.personas) await savePersona(persona);
       res.status(201).json({ simulation: await saveSimulation(simulation), warnings });
     } catch (e) {
       if (e instanceof ImportError) throw new HttpError(400, e.message);
@@ -264,6 +273,58 @@ app.delete(
     requireAdmin(req);
     await deleteAssignment(param(req, "id"));
     res.status(204).end();
+  }),
+);
+
+// ---- personas (anyone can read; admins edit)
+
+app.get("/api/library/personas", route(async (_req, res) => res.json(await readPersonas())));
+app.put(
+  "/api/library/personas/templates/:id",
+  route(async (req, res) => {
+    requireAdmin(req);
+    res.json(await savePersonaTemplate({ ...req.body, id: param(req, "id") }));
+  }),
+);
+app.delete(
+  "/api/library/personas/templates/:id",
+  route(async (req, res) => {
+    requireAdmin(req);
+    await deletePersonaTemplate(param(req, "id"));
+    res.status(204).end();
+  }),
+);
+app.put(
+  "/api/library/personas/:id",
+  route(async (req, res) => {
+    requireAdmin(req);
+    res.json(await savePersona({ ...req.body, id: param(req, "id") }));
+  }),
+);
+app.delete(
+  "/api/library/personas/:id",
+  route(async (req, res) => {
+    requireAdmin(req);
+    await deletePersona(param(req, "id"));
+    res.status(204).end();
+  }),
+);
+/** AI drafts personas (not saved: the admin reviews them first). */
+app.post(
+  "/api/library/personas/draft",
+  route(async (req, res) => {
+    requireAdmin(req);
+    const description = String(req.body?.description ?? "").trim().slice(0, 4000);
+    if (!description) throw new HttpError(400, "Describe the personas you want.");
+    const count = Math.min(10, Math.max(1, Number(req.body?.count) || 3));
+    const lib = await readPersonas();
+    const template = req.body?.templateId ? lib.templates.find((t) => t.id === req.body.templateId) ?? null : null;
+    try {
+      res.json({ personas: await draftPersonas({ description, count, template }, newId) });
+    } catch (e) {
+      const { status, message } = describeApiError(e);
+      res.status(status).json({ error: message });
+    }
   }),
 );
 

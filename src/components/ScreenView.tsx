@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
 import { fieldVar, interpolate, isVisible } from "../../shared/engine";
 import { snapRect } from "../../shared/layout";
+import { formatValue, parseTableVar } from "../../shared/personas";
 import type { Rect, Screen, SimElement } from "../../shared/schema";
 import { assetUrl } from "../api";
 
@@ -117,6 +118,27 @@ export function PlayScreen({ screen, vars, highlightId, focusHighlight, revealHo
         .map((el) => {
           const label = interpolate(el.label, vars);
           const cls = `sim-el kind-${el.kind} ${el.id === highlightId ? "highlight" : ""}`;
+          if (el.kind === "table") {
+            const table = parseTableVar(vars[el.tableSource ?? ""]);
+            return (
+              <div key={el.id} className={cls} style={rectStyle(el.rect)}>
+                <div className="sim-table-wrap">
+                  {table && table.rows.length ? (
+                    <table className="sim-table" aria-label={label}>
+                      <thead><tr>{table.columns.map((c) => <th key={c.key}>{c.label}</th>)}</tr></thead>
+                      <tbody>
+                        {table.rows.map((r, i) => (
+                          <tr key={i}>{table.columns.map((c) => <td key={c.key} className={c.type === "money" || c.type === "number" ? "num" : ""}>{formatValue(r[c.key] ?? "", c.type)}</td>)}</tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="sim-table-empty">{table ? "No records" : "—"}</div>
+                  )}
+                </div>
+              </div>
+            );
+          }
           if (el.kind === "text") {
             return (
               <div key={el.id} className={cls} style={rectStyle(el.rect)}>

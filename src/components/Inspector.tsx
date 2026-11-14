@@ -1,5 +1,5 @@
 /** Property panels for the editor's right-hand side. Each takes a value and an onChange. */
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import {
   ActionTypes,
   ConditionOps,
@@ -19,6 +19,14 @@ import {
 } from "../../shared/schema";
 import { newId } from "../../shared/engine";
 import type { GradingScheme } from "../../shared/library";
+import type { PersonaLibrary } from "../../shared/personas";
+
+/**
+ * Variables that exist only at play time and aren't declared in the simulation, such as
+ * those provided by personas ({{customer.name}}). The editor provides them so variable
+ * fields can suggest them.
+ */
+export const ExtraVariablesContext = createContext<{ names: string[]; tables: string[] }>({ names: [], tables: [] });
 import { GeneratorKinds, generateValues, newSeed, type RandomVar } from "../../shared/random";
 
 const OP_LABEL: Record<(typeof ConditionOps)[number], string> = {
@@ -95,11 +103,12 @@ export function IdField({ label, value, onRename }: { label: string; value: stri
 
 function VarInput({ value, onChange, sim, placeholder = "variable" }: { value: string; onChange: (v: string) => void; sim: Simulation; placeholder?: string }) {
   const listId = "vars-datalist";
+  const extra = useContext(ExtraVariablesContext);
   return (
     <>
       <input className="mono" list={listId} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
       <datalist id={listId}>
-        {variableNames(sim).map((n) => <option key={n} value={n} />)}
+        {[...variableNames(sim), ...extra.names.filter((n) => !n.includes(".") || !/\.(backstory)$/.test(n))].map((n) => <option key={n} value={n} />)}
       </datalist>
     </>
   );
@@ -248,6 +257,7 @@ export function ElementInspector({ el, sim, onChange, onDelete, onRename, onDupl
           )}
         </>
       )}
+      {el.kind === "table" && <TableSourceField el={el} onChange={(tableSource) => set({ tableSource })} />}
       <details open={!!el.visibleIf?.length}>
         <summary>Visible only when…</summary>
         <ConditionsEditor value={el.visibleIf ?? []} onChange={(c) => set({ visibleIf: c.length ? c : undefined })} sim={sim} emptyText="Always visible" />
@@ -339,8 +349,9 @@ function elementName(sim: Simulation, id: string) {
   return `${id} (missing)`;
 }
 
-export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord, onPlay, initialPathId, schemes }: {
+export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord, onPlay, initialPathId, schemes, personaLib }: {
   schemes: GradingScheme[] | null;
+  personaLib: PersonaLibrary | null;
   scenario: Scenario;
   sim: Simulation;
   onChange: (s: Scenario) => void;
@@ -408,6 +419,7 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
           {sim.screens.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </label>
+      <PersonaOverrides scenario={scenario} sim={sim} lib={personaLib} onChange={(o) => set({ personaOverrides: o })} />
       {sim.randomData.length > 0 && (
         <label className="check-line">
           <input type="checkbox" checked={scenario.randomize} onChange={(e) => set({ randomize: e.target.checked })} />
@@ -677,5 +689,60 @@ function VarNameCell({ value, onRename }: { value: string; onRename: (next: stri
       />
       {err && <small className="text-error">{err}</small>}
     </>
+  );
+}
+
+/** Which table a "table" element shows: usually a persona's record table such as customer.orders. */
+function TableSourceField({ el, onChange }: { el: SimElement; onChange: (v: string | undefined) => void }) {
+  const { tables } = useContext(ExtraVariablesContext);
+  return (
+    <label className="field">
+      <span>Shows the table</span>
+      <input className="mono" list="table-sources" value={el.tableSource ?? ""} placeholder="e.g. customer.orders" onChange={(e) => onChange(e.target.value || undefined)} />
+      <datalist id="table-sources">{tables.map((t) => <option key={t} value={t} />)}</datalist>
+      <small className="muted">
+        {tables.length
+          ? `Tables from this simulation's personas: ${tables.join(", ")}.`
+          : "Link a persona whose template has record tables in ⚙ Settings, then pick one of its tables here."}
+      </small>
+    </label>
+  );
+}
+
+/** Per-scenario persona choice for each of the simulation's roles. */
+export function PersonaOverrides({ scenario, sim, lib, onChange }: {
+  scenario: Scenario;
+  sim: Simulation;
+  lib: PersonaLibrary | null;
+  onChange: (o: Scenario["personaOverrides"]) => void;
+}) {
+  if (!sim.personas.length || !lib) return null;
+  const name = (id: string) => lib.personas.find((p) => p.id === id)?.name ?? "(missing persona)";
+  return (
+    <div className="field">
+      <span>Personas</span>
+      {sim.personas.map((link) => {
+        const o = scenario.personaOverrides.find((x) => x.role === link.role);
+        const value = o === undefined ? "__same" : o.personaId === null ? "__none" : o.personaId;
+        return (
+          <div key={link.role} className="cond-row">
+            <code className="role-name">{link.role}</code>
+            <select
+              value={value}
+              aria-label={`Persona for ${link.role}`}
+              onChange={(e) => {
+                const rest = scenario.personaOverrides.filter((x) => x.role !== link.role);
+                const v = e.target.value;
+                onChange(v === "__same" ? rest : [...rest, { role: link.role, personaId: v === "__none" ? null : v }]);
+              }}
+            >
+              <option value="__same">Same as simulation ({name(link.personaId)})</option>
+              <option value="__none">No persona in this scenario</option>
+              {lib.personas.filter((p) => p.id !== link.personaId).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+        );
+      })}
+    </div>
   );
 }

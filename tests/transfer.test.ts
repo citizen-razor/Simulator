@@ -123,7 +123,7 @@ describe("tags and grading schemes travel with exports", () => {
     const r = await importBundle(await exported(), memoryStore().save, "x", { ...source, canCreate: false, makeId });
     expect(r.simulation.tagIds).toEqual(["tag-src"]);
     expect(r.simulation.grading).toEqual({ schemeId: "scheme-src", bindings: [binding] });
-    expect(r.created).toEqual({ taxonomy: null, schemes: [] });
+    expect(r.created).toEqual({ taxonomy: null, schemes: [], personas: [], personaTemplates: [] });
   });
 
   it("matches by name on another installation and re-links rubric targets", async () => {
@@ -148,7 +148,7 @@ describe("tags and grading schemes travel with exports", () => {
     const r = await importBundle(await exported(), memoryStore().save, "x", { taxonomy: { topics: [] }, schemes: [], canCreate: false, makeId });
     expect(r.simulation.tagIds).toEqual([]);
     expect(r.simulation.grading).toEqual({ schemeId: null, bindings: [] });
-    expect(r.created).toEqual({ taxonomy: null, schemes: [] });
+    expect(r.created).toEqual({ taxonomy: null, schemes: [], personas: [], personaTemplates: [] });
     expect(r.warnings.join(" ")).toMatch(/1 tag .* removed\. An admin can import/);
     expect(r.warnings.join(" ")).toMatch(/"Support assessment" isn't in this library, so Standard grading is used instead\. An admin/);
   });
@@ -161,5 +161,41 @@ describe("tags and grading schemes travel with exports", () => {
     expect(r.created.schemes.map((s) => s.name)).toEqual(["Support assessment"]);
     expect(r.simulation.grading.schemeId).toBe(r.created.schemes[0].id);
     expect(r.simulation.grading.bindings).toEqual([binding]); // criterion ids are kept with the copied scheme
+  });
+});
+
+describe("personas travel with exports", () => {
+  const tpl = { id: "tpl-src", name: "Telecom customer", description: "", fields: [{ key: "accountNumber", label: "Account number", type: "text" as const }], tables: [] };
+  const maya = { id: "p-src", name: "Maya Okonkwo", summary: "", backstory: "", templateId: "tpl-src", values: { accountNumber: "TEL-1" }, extra: [], tables: {} };
+  const source = { taxonomy: { topics: [] }, schemes: [], personas: { templates: [tpl], personas: [maya] } };
+  let n = 0;
+  const makeId = (p: string) => `${p}-new${++n}`;
+  async function exported() {
+    const sim = SimulationSchema.parse(structuredClone(sample));
+    sim.personas = [{ role: "customer", personaId: "p-src" }];
+    const { bundle } = await buildBundle(sim, memoryStore().read, source);
+    return JSON.parse(JSON.stringify(bundle));
+  }
+
+  it("includes the personas used and their templates", async () => {
+    const b = await exported();
+    expect(b.library.personas.map((p: { name: string }) => p.name)).toEqual(["Maya Okonkwo"]);
+    expect(b.library.personaTemplates.map((t: { name: string }) => t.name)).toEqual(["Telecom customer"]);
+  });
+
+  it("matches by name, creates for admins, unlinks for others", async () => {
+    const empty = { taxonomy: { topics: [] }, schemes: [], personas: { templates: [], personas: [] } };
+    const byName = { ...empty, personas: { templates: [], personas: [{ ...maya, id: "p-here", templateId: null }] } };
+    const matched = await importBundle(await exported(), memoryStore().save, "x", { ...byName, canCreate: false, makeId });
+    expect(matched.simulation.personas).toEqual([{ role: "customer", personaId: "p-here" }]);
+
+    const user = await importBundle(await exported(), memoryStore().save, "x", { ...empty, canCreate: false, makeId });
+    expect(user.simulation.personas).toEqual([]);
+    expect(user.warnings.join(" ")).toMatch(/"Maya Okonkwo" isn't in this library, so it was unlinked\. An admin/);
+
+    const admin = await importBundle(await exported(), memoryStore().save, "x", { ...empty, canCreate: true, makeId });
+    expect(admin.created.personaTemplates.map((t) => t.name)).toEqual(["Telecom customer"]);
+    expect(admin.created.personas[0].templateId).toBe(admin.created.personaTemplates[0].id);
+    expect(admin.simulation.personas).toEqual([{ role: "customer", personaId: admin.created.personas[0].id }]);
   });
 });

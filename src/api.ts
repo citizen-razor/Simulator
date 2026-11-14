@@ -1,6 +1,7 @@
 /** Thin wrappers around the local API. Every write sends the X-Simulator header the server requires. */
 import type { Assignment } from "../shared/assignments";
 import type { GradingLibrary, GradingScheme, Taxonomy } from "../shared/library";
+import type { Persona, PersonaLibrary, PersonaTemplate } from "../shared/personas";
 import type { Attempt, Simulation } from "../shared/schema";
 import { adminPin } from "./lib/admin";
 
@@ -66,6 +67,13 @@ export const api = {
   createAssignments: (body: { trainees: string[]; simulationId: string; scenarioId: string; requirement: string; dueDate: string | null; note: string }) =>
     request<Assignment[]>("POST", "/api/assignments", body),
   deleteAssignment: (id: string) => request<void>("DELETE", `/api/assignments/${encodeURIComponent(id)}`),
+  personas: () => request<PersonaLibrary>("GET", "/api/library/personas"),
+  savePersonaTemplate: (t: PersonaTemplate) => request<PersonaTemplate>("PUT", `/api/library/personas/templates/${encodeURIComponent(t.id)}`, t),
+  deletePersonaTemplate: (id: string) => request<void>("DELETE", `/api/library/personas/templates/${encodeURIComponent(id)}`),
+  savePersona: (p: Persona) => request<Persona>("PUT", `/api/library/personas/${encodeURIComponent(p.id)}`, p),
+  deletePersona: (id: string) => request<void>("DELETE", `/api/library/personas/${encodeURIComponent(id)}`),
+  draftPersonas: (body: { description: string; count: number; templateId: string | null }) =>
+    request<{ personas: Persona[] }>("POST", "/api/library/personas/draft", body),
   markAttempt: (id: string, marks: Record<string, boolean | null>) => request<Attempt>("POST", `/api/attempts/${encodeURIComponent(id)}/marks`, { marks }),
   addAttempt: (a: Omit<Attempt, "id">) => request<Attempt>("POST", "/api/attempts", { ...a, id: "new" }),
 };

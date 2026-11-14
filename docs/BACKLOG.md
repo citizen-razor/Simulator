@@ -20,6 +20,12 @@ Nothing right now.
   conditions, for schemes written for one specific simulation.
 - ⬜ **Assignment reminders**: email or in-app notices before a due date (needs accounts
   or an email service).
+- ⬜ **Random persona per run**: let a scenario draw from a set of personas so trainees
+  meet different customers (decided against for now; data on screens only).
+- ⬜ **Persona briefing card / AI-played customer**: show the persona to the trainee, or
+  let Claude role-play them in a chat (not chosen for now).
+- ⬜ **Clickable table rows**: let a table element's rows act like buttons (e.g. open an
+  order).
 - ⬜ **Random values inside screenshots**: today random values appear in text elements and
   wireframes, not in the pixels of an uploaded screenshot.
 - ⬜ **Re-grade past attempts** when a scheme changes (today each attempt keeps the rules
@@ -62,6 +68,10 @@ Nothing right now.
 - ✅ Assignments: complete / pass / master with due dates and notes; "My training" for
   trainees; status from results; shown in the Player, summary and Progress. Decided: credit follows
   the work, so attempts made before assigning count too
+- ✅ Personas: admin templates (typed fields + record tables), personas with backstories,
+  account details and records, AI drafting from a description, roles per simulation with
+  scenario overrides, `{{customer.field}}` variables, a "table" element, carried through
+  export/import, and deletion guards
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

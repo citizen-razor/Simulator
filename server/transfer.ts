@@ -8,6 +8,7 @@
  *     "library": {                                  (optional; files from older versions lack it)
  *       "tags":    [{ "id", "name", "topic" }],     the simulation's tags, by name
  *       "schemes": [ ...GradingScheme ]             grading schemes it or its scenarios use
+ *       "personas": [ ...Persona ], "personaTemplates": [ ...PersonaTemplate ]
  *     }
  *   }
  *
@@ -21,6 +22,8 @@
  *   schemes  same id and name here → kept; else a scheme with the same name → that one
  *            (rubric targets re-linked by criterion label); else created (admins only) or
  *            replaced by Standard with a warning
+ *   personas same id here → kept; else a persona with the same name → that one; else created
+ *            with its template (matched by name, or created) for admins, or unlinked with a warning
  * Plain simulation JSON (no wrapper, no images, no library) is accepted too.
  *
  * Storage is passed in as functions so this logic can be tested without a disk.
@@ -29,6 +32,7 @@ import { z } from "zod";
 import { lintSimulation } from "../shared/engine";
 import { DEFAULT_SCHEME_ID, findTag, GradingSchemeSchema, type GradingScheme, type Taxonomy } from "../shared/library";
 import { ASSET_ID_PATTERN, SimulationSchema, type Binding, type Simulation } from "../shared/schema";
+import { PersonaSchema, PersonaTemplateSchema, type Persona, type PersonaLibrary, type PersonaTemplate } from "../shared/personas";
 
 export const EXPORT_FORMAT = "simulator-export";
 
@@ -42,8 +46,10 @@ const BundleSchema = z.object({
     .object({
       tags: z.array(z.object({ id: z.string(), name: z.string(), topic: z.string() })).default([]),
       schemes: z.array(GradingSchemeSchema).default([]),
+      personas: z.array(PersonaSchema).default([]),
+      personaTemplates: z.array(PersonaTemplateSchema).default([]),
     })
-    .default({ tags: [], schemes: [] }),
+    .default({ tags: [], schemes: [], personas: [], personaTemplates: [] }),
 });
 
 export interface Bundle {
@@ -52,7 +58,12 @@ export interface Bundle {
   exportedAt: string;
   simulation: Simulation;
   assets: Record<string, { mediaType: string; data: string }>;
-  library: { tags: { id: string; name: string; topic: string }[]; schemes: GradingScheme[] };
+  library: {
+    tags: { id: string; name: string; topic: string }[];
+    schemes: GradingScheme[];
+    personas: Persona[];
+    personaTemplates: PersonaTemplate[];
+  };
 }
 
 type ReadAsset = (id: string) => Promise<{ data: Buffer; mediaType: string }>;
@@ -62,6 +73,7 @@ type SaveAsset = (mediaType: string, data: Buffer) => Promise<string>;
 export interface LocalLibrary {
   taxonomy: Taxonomy;
   schemes: GradingScheme[];
+  personas?: PersonaLibrary;
 }
 
 export async function buildBundle(
@@ -87,6 +99,10 @@ export async function buildBundle(
   });
   const schemeIds = new Set([sim.grading.schemeId, ...sim.scenarios.map((s) => s.gradingSchemeId)].filter((x): x is string => !!x));
   const schemes = library.schemes.filter((s) => schemeIds.has(s.id));
+  const personaIds = new Set([...sim.personas.map((p) => p.personaId), ...sim.scenarios.flatMap((sc) => sc.personaOverrides.map((o) => o.personaId))]);
+  const personas = (library.personas?.personas ?? []).filter((p) => personaIds.has(p.id));
+  const templateIds = new Set(personas.map((p) => p.templateId));
+  const personaTemplates = (library.personas?.templates ?? []).filter((t) => templateIds.has(t.id));
   return {
     bundle: {
       format: EXPORT_FORMAT,
@@ -94,7 +110,7 @@ export async function buildBundle(
       exportedAt: new Date().toISOString(),
       simulation: sim,
       assets,
-      library: { tags, schemes },
+      library: { tags, schemes, personas, personaTemplates },
     },
     missing,
   };
@@ -111,8 +127,8 @@ export interface ImportOptions extends LocalLibrary {
 export interface ImportResult {
   simulation: Simulation;
   warnings: string[];
-  /** Library additions to save (only when canCreate): the whole updated taxonomy, and new schemes. */
-  created: { taxonomy: Taxonomy | null; schemes: GradingScheme[] };
+  /** Library additions to save (only when canCreate): the whole updated taxonomy, new schemes, new personas and templates. */
+  created: { taxonomy: Taxonomy | null; schemes: GradingScheme[]; personas: Persona[]; personaTemplates: PersonaTemplate[] };
 }
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -122,7 +138,7 @@ export async function importBundle(raw: unknown, saveAsset: SaveAsset, newSimId:
   const warnings: string[] = [];
   let simulationRaw: unknown;
   let assets: Record<string, { mediaType: string; data: string }> = {};
-  let fileLibrary: Bundle["library"] = { tags: [], schemes: [] };
+  let fileLibrary: Bundle["library"] = { tags: [], schemes: [], personas: [], personaTemplates: [] };
 
   if (raw && typeof raw === "object" && (raw as { format?: unknown }).format === EXPORT_FORMAT) {
     const parsed = BundleSchema.safeParse(raw);
@@ -159,10 +175,11 @@ export async function importBundle(raw: unknown, saveAsset: SaveAsset, newSimId:
     screen.imageAssetId = mapped ?? null;
   }
 
-  const created: ImportResult["created"] = { taxonomy: null, schemes: [] };
+  const created: ImportResult["created"] = { taxonomy: null, schemes: [], personas: [], personaTemplates: [] };
   if (opts) {
     mapTags(sim, fileLibrary, opts, created, warnings);
     mapSchemes(sim, fileLibrary, opts, created, warnings);
+    mapPersonas(sim, fileLibrary, opts, created, warnings);
   }
 
   sim.createdAt = undefined;
@@ -277,6 +294,59 @@ function mapSchemes(sim: Simulation, file: Bundle["library"], opts: ImportOption
   for (const sc of sim.scenarios) {
     if (!sc.gradingSchemeId) continue;
     sc.gradingSchemeId = resolve(sc.gradingSchemeId)?.id ?? null;
+  }
+}
+
+function mapPersonas(sim: Simulation, file: Bundle["library"], opts: ImportOptions, created: ImportResult["created"], warnings: string[]) {
+  const local = opts.personas ?? { templates: [], personas: [] };
+  const resolved = new Map<string, string | null>();
+  const resolve = (personaId: string): string | null => {
+    if (resolved.has(personaId)) return resolved.get(personaId)!;
+    const fromFile = file.personas.find((p) => p.id === personaId);
+    const all = [...local.personas, ...created.personas];
+    let result: string | null = null;
+    const sameId = all.find((p) => p.id === personaId);
+    if (sameId && (!fromFile || same(sameId.name, fromFile.name))) result = sameId.id;
+    else if (fromFile) {
+      result = all.find((p) => same(p.name, fromFile.name))?.id ?? null;
+      if (!result && opts.canCreate) {
+        // Bring the persona's template too: same name here, or a copy.
+        let templateId: string | null = null;
+        const fileTpl = file.personaTemplates.find((t) => t.id === fromFile.templateId);
+        if (fileTpl) {
+          const tpls = [...local.templates, ...created.personaTemplates];
+          templateId = tpls.find((t) => same(t.name, fileTpl.name))?.id ?? null;
+          if (!templateId) {
+            const copy = { ...structuredClone(fileTpl), id: opts.makeId("tpl") };
+            created.personaTemplates.push(copy);
+            templateId = copy.id;
+          }
+        }
+        const copy = { ...structuredClone(fromFile), id: opts.makeId("persona"), templateId };
+        created.personas.push(copy);
+        result = copy.id;
+        warnings.push(`Added the persona "${fromFile.name}" from the file to the persona library.`);
+      }
+    }
+    if (!result) {
+      warnings.push(
+        `The persona ${fromFile ? `"${fromFile.name}"` : "used by the file"} isn't in this library, so it was unlinked` +
+          (opts.canCreate ? "." : ". An admin can import the file to add it."),
+      );
+    }
+    resolved.set(personaId, result);
+    return result;
+  };
+  sim.personas = sim.personas.flatMap((l) => {
+    const id = resolve(l.personaId);
+    return id ? [{ ...l, personaId: id }] : [];
+  });
+  for (const sc of sim.scenarios) {
+    sc.personaOverrides = sc.personaOverrides.flatMap((o) => {
+      if (o.personaId === null) return [o];
+      const id = resolve(o.personaId);
+      return id ? [{ ...o, personaId: id }] : [];
+    });
   }
 }
 

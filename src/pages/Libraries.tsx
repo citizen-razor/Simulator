@@ -19,23 +19,25 @@ import {
 import { api } from "../api";
 import { AdminBar } from "../components/AdminGate";
 import { useAdmin } from "../lib/admin";
+import { PersonaLibraryPanel } from "./PersonaLibrary";
 
 export default function Libraries({ tab }: { tab?: string }) {
-  const current = tab === "grading" || tab === "storage" ? tab : "tags";
+  const current = tab === "grading" || tab === "storage" || tab === "personas" ? tab : "tags";
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <h1>Libraries</h1>
-          <p className="muted">Shared topics, tags and grading schemes that every simulation can use.</p>
+          <p className="muted">Shared topics, tags, personas and grading schemes that every simulation can use.</p>
         </div>
       </div>
       <div className="segmented page-tabs" role="tablist">
         <a role="tab" aria-selected={current === "tags"} className={current === "tags" ? "on" : ""} href="#/libraries/tags">Topics & tags</a>
+        <a role="tab" aria-selected={current === "personas"} className={current === "personas" ? "on" : ""} href="#/libraries/personas">Personas</a>
         <a role="tab" aria-selected={current === "grading"} className={current === "grading" ? "on" : ""} href="#/libraries/grading">Grading schemes</a>
         <a role="tab" aria-selected={current === "storage"} className={current === "storage" ? "on" : ""} href="#/libraries/storage">Storage</a>
       </div>
-      {current === "tags" ? <TaxonomyEditor /> : current === "grading" ? <GradingEditor /> : <StoragePanel />}
+      {current === "tags" ? <TaxonomyEditor /> : current === "personas" ? <PersonaLibraryPanel /> : current === "grading" ? <GradingEditor /> : <StoragePanel />}
     </div>
   );
 }

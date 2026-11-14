@@ -3,7 +3,8 @@ import { lintSimulation, newId } from "../../shared/engine";
 import { duplicateElement, duplicateScreen, moveScreen, renameElement, renameScreen, renameVariable } from "../../shared/refactor";
 import { ElementKinds, FIELD_KINDS, type ElementKind, type Rect, type SimElement, type Simulation } from "../../shared/schema";
 import { api, exportUrl, streamAi, type AiProgress } from "../api";
-import { ElementInspector, ScenarioInspector, ScreenInspector, VariablesPanel } from "../components/Inspector";
+import { ElementInspector, ExtraVariablesContext, ScenarioInspector, ScreenInspector, VariablesPanel } from "../components/Inspector";
+import { personaVariableNames, type PersonaLibrary } from "../../shared/personas";
 import { EditScreen } from "../components/ScreenView";
 import { SimSettings } from "../components/SimSettings";
 import type { GradingScheme, Taxonomy } from "../../shared/library";
@@ -27,6 +28,7 @@ const DEFAULT_LABEL: Record<ElementKind, string> = {
   select: "Dropdown",
   checkbox: "Checkbox",
   text: "Label",
+  table: "Records table",
 };
 
 const isTyping = () => {
@@ -49,6 +51,7 @@ export default function Editor({ id }: { id: string }) {
   const [aiAvailable, setAiAvailable] = useState(false);
   const [taxonomy, setTaxonomy] = useState<Taxonomy | null>(null);
   const [schemes, setSchemes] = useState<GradingScheme[] | null>(null);
+  const [personaLib, setPersonaLib] = useState<PersonaLibrary | null>(null);
   const [aligning, setAligning] = useState(false);
   const [alignMsg, setAlignMsg] = useState<{ screenId: string; text: string } | null>(null);
   const undo = useRef<{ stack: Simulation[]; lastKey: string; lastAt: number }>({ stack: [], lastKey: "", lastAt: 0 });
@@ -57,6 +60,7 @@ export default function Editor({ id }: { id: string }) {
     api.status().then((s) => setAiAvailable(s.aiConfigured)).catch(() => undefined);
     api.taxonomy().then(setTaxonomy).catch(() => setTaxonomy({ topics: [] }));
     api.grading().then((g) => setSchemes(g.schemes)).catch(() => setSchemes([]));
+    api.personas().then(setPersonaLib).catch(() => setPersonaLib({ templates: [], personas: [] }));
     api
       .get(id)
       .then((s) => {
@@ -338,6 +342,20 @@ export default function Editor({ id }: { id: string }) {
 
   // ------------------------------------------------------------ layout
 
+  // Variables the linked personas will provide at play time, for suggestions in the inspector.
+  const extraVariables = (() => {
+    const names: string[] = [];
+    const tables: string[] = [];
+    for (const link of sim.personas) {
+      const persona = personaLib?.personas.find((p) => p.id === link.personaId);
+      if (!persona) continue;
+      const tpl = personaLib?.templates.find((t) => t.id === persona.templateId) ?? null;
+      names.push(...personaVariableNames(link.role, persona, tpl));
+      for (const t of tpl?.tables ?? []) tables.push(`${link.role}.${t.key}`);
+    }
+    return { names, tables };
+  })();
+
   const inspector = (() => {
     if (sel.kind === "element" && selectedEl) {
       return (
@@ -372,6 +390,7 @@ export default function Editor({ id }: { id: string }) {
             }}
             key={sc.id}
             schemes={schemes}
+            personaLib={personaLib}
             initialPathId={new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("path") ?? undefined}
             onRecord={(pathId) => goPlay(`/play/${sim.id}?record=${sc.id}&path=${pathId}`)}
             onPlay={(mode) => goPlay(`/play/${sim.id}?mode=${mode}&scenario=${sc.id}`)}
@@ -393,7 +412,7 @@ export default function Editor({ id }: { id: string }) {
       );
     }
     if (sel.kind === "settings") {
-      return <SimSettings sim={sim} taxonomy={taxonomy} schemes={schemes} update={update} />;
+      return <SimSettings sim={sim} taxonomy={taxonomy} schemes={schemes} personaLib={personaLib} update={update} />;
     }
     return (
       <ScreenInspector
@@ -431,6 +450,7 @@ export default function Editor({ id }: { id: string }) {
   })();
 
   return (
+    <ExtraVariablesContext.Provider value={extraVariables}>
     <div className="editor">
       <div className="editor-bar">
         <a href="#/" className="link-btn">← Library</a>
@@ -501,7 +521,7 @@ export default function Editor({ id }: { id: string }) {
             onClick={() => {
               const scId = newId("scenario");
               update((d) => {
-                d.scenarios.push({ id: scId, title: "New scenario", goal: "", initialVars: [], steps: [], alternatePaths: [], successCriteria: [], gradingSchemeId: null, randomize: true });
+                d.scenarios.push({ id: scId, title: "New scenario", goal: "", initialVars: [], steps: [], alternatePaths: [], successCriteria: [], gradingSchemeId: null, randomize: true, personaOverrides: [] });
               });
               setSel({ kind: "scenario", id: scId });
             }}
@@ -565,5 +585,6 @@ export default function Editor({ id }: { id: string }) {
         <aside className="editor-right">{inspector}</aside>
       </div>
     </div>
+    </ExtraVariablesContext.Provider>
   );
 }

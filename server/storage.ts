@@ -20,6 +20,14 @@ import {
 } from "../shared/library";
 import { findUnusedImages, type StoredFile, type UsageReport } from "./cleanup";
 import { AssignmentSchema, sameName, type Assignment } from "../shared/assignments";
+import {
+  PersonaLibrarySchema,
+  PersonaSchema,
+  PersonaTemplateSchema,
+  type Persona,
+  type PersonaLibrary,
+  type PersonaTemplate,
+} from "../shared/personas";
 import { ASSET_ID_PATTERN, AttemptSchema, ID_PATTERN, SimulationSchema, type Attempt, type Simulation } from "../shared/schema";
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
@@ -334,4 +342,69 @@ export async function createAssignments(input: {
 
 export async function deleteAssignment(id: string) {
   await updateAssignments((all) => all.filter((a) => a.id !== id));
+}
+
+// ------------------------------------------------------------------ personas
+
+const PERSONAS_FILE = path.join(DATA_DIR, "personas.json");
+let personasLock: Promise<unknown> = Promise.resolve();
+
+export async function readPersonas(): Promise<PersonaLibrary> {
+  return PersonaLibrarySchema.parse(await readJson(PERSONAS_FILE, { templates: [], personas: [] }));
+}
+
+function updatePersonas<T>(fn: (lib: PersonaLibrary) => T | Promise<T>): Promise<T> {
+  const job = personasLock.then(async () => {
+    const lib = await readPersonas();
+    const out = await fn(lib);
+    await writeAtomic(PERSONAS_FILE, JSON.stringify(PersonaLibrarySchema.parse(lib), null, 2));
+    return out;
+  });
+  personasLock = job.catch(() => undefined);
+  return job;
+}
+
+export function savePersonaTemplate(input: unknown): Promise<PersonaTemplate> {
+  const t = PersonaTemplateSchema.parse(input);
+  const keys = [...t.fields.map((f) => f.key), ...t.tables.map((x) => x.key)];
+  const dup = keys.find((k, i) => keys.indexOf(k) !== i);
+  if (dup) throw new HttpError(400, `The key "${dup}" is used twice in this template.`);
+  return updatePersonas((lib) => {
+    const i = lib.templates.findIndex((x) => x.id === t.id);
+    if (i === -1) lib.templates.push(t);
+    else lib.templates[i] = t;
+    return t;
+  });
+}
+
+export function deletePersonaTemplate(templateId: string): Promise<void> {
+  return updatePersonas((lib) => {
+    const users = lib.personas.filter((p) => p.templateId === templateId).map((p) => p.name);
+    if (users.length) throw new HttpError(409, `These personas use this template: ${users.join(", ")}. Change or delete them first.`);
+    lib.templates = lib.templates.filter((t) => t.id !== templateId);
+  });
+}
+
+export function savePersona(input: unknown): Promise<Persona> {
+  const p = PersonaSchema.parse(input);
+  return updatePersonas((lib) => {
+    if (p.templateId && !lib.templates.some((t) => t.id === p.templateId)) throw new HttpError(400, "That persona template doesn't exist.");
+    const i = lib.personas.findIndex((x) => x.id === p.id);
+    if (i === -1) lib.personas.push(p);
+    else lib.personas[i] = p;
+    return p;
+  });
+}
+
+export async function deletePersona(personaId: string): Promise<void> {
+  const users: string[] = [];
+  for (const summary of await listSimulations()) {
+    const sim = await getSimulation(summary.id);
+    if (sim.personas.some((l) => l.personaId === personaId)) users.push(sim.title);
+    for (const sc of sim.scenarios) if (sc.personaOverrides.some((o) => o.personaId === personaId)) users.push(`${sim.title} → ${sc.title}`);
+  }
+  if (users.length) throw new HttpError(409, `This persona is used by: ${users.join("; ")}. Remove it there first.`);
+  await updatePersonas((lib) => {
+    lib.personas = lib.personas.filter((p) => p.id !== personaId);
+  });
 }

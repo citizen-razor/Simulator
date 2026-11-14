@@ -49,7 +49,7 @@ individual simulations (below).
   one `.simulation.json` file containing the simulation and all its screenshots.
 - **Import:** **⤒ Import** on the Library page. The import is added as a new simulation and
   never overwrites an existing one. Plain simulation JSON (without images) also works.
-- **Tags and grading schemes** travel with the file and are matched by name on import, since
+- **Tags, grading schemes and personas** travel with the file and are matched by name on import, since
   ids differ between installations. Anything this installation doesn't have is **added**
   if an admin imports the file (unlock admin mode first), and otherwise left out with a
   warning.
@@ -126,6 +126,20 @@ admin mode (below); everyone can view them.
 - **Topics & tags:** topics (e.g. "Customer service") contain tags (e.g. "Refunds"). Tag a
   simulation in the editor's ⚙ Settings. You can then filter the Library page by topic or
   tag, and the Progress page shows mastery per topic.
+- **Personas:** rich, fictional customers with backstories and account information.
+  - An admin defines **templates** (e.g. "Telecom customer"): fields such as account
+    number, plan (a choice), balance (money) and customer-since (date), plus **record
+    tables** such as bills or transactions.
+  - Each **persona** fills in a template: a name, one-line summary, backstory, field values,
+    table rows and any extra details.
+  - **✦ Draft personas with AI** writes several from a description to fit a template; you
+    keep or discard each one.
+  - Link personas to **roles** in a simulation's ⚙ Settings (usually `customer`; a scenario
+    can use a different persona). Their details then appear on screens as
+    `{{customer.name}}`, `{{customer.balance}}` or `{{customer.bills.1.amount}}`. A
+    **table** element shows a whole record table, e.g. `customer.bills`.
+  - Use invented details only; the editor reminds you, because simulations get exported
+    and shared.
 - **Grading schemes:** how attempts are scored.
   - **Points:** penalty per error and per hint, an optional time limit with an overtime
     penalty, a pass mark and a mastery mark.
@@ -253,6 +267,7 @@ shared/refactor.ts    safe renames, duplicating, reordering
 shared/progress.ts    per-trainee progress: mastery, trends, trouble spots, topics
 shared/random.ts      random value generators (seeded, reproducible)
 shared/assignments.ts assignment requirements and status
+shared/personas.ts    persona templates, personas, and the {{role.field}} variables they provide
 shared/library.ts     topic/tag and grading-scheme data model
 shared/grading.ts     applies a grading scheme: points, rubric, time limit, objectives
 server/admin.ts       admin PIN check

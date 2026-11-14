@@ -23,6 +23,7 @@ import { PlayScreen } from "../components/ScreenView";
 import { navigate } from "../router";
 import { evaluateObjectives, gradeSession, resolveScheme, timeLeft, type GradeResult } from "../../shared/grading";
 import { STANDARD_SCHEME, type GradingScheme } from "../../shared/library";
+import { sessionPersonaVariables, type PersonaLibrary } from "../../shared/personas";
 import { meetsRequirement, REQUIREMENT_TEXT, type Assignment } from "../../shared/assignments";
 import { loadTrainee, saveTrainee } from "../lib/trainee";
 
@@ -64,6 +65,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   const [summary, setSummary] = useState<null | { completed: boolean; grade: GradeResult; durationSec: number }>(null);
   const [schemes, setSchemes] = useState<GradingScheme[]>([STANDARD_SCHEME]);
   const [assignment, setAssignment] = useState<Assignment | null>(null);
+  const [personaLib, setPersonaLib] = useState<PersonaLibrary>({ templates: [], personas: [] });
   /** After a run launched from an assignment: did it satisfy it? (null = awaiting marking) */
   const [assignmentMet, setAssignmentMet] = useState<boolean | null | undefined>(undefined);
   const [recording, setRecording] = useState<Step[]>([]);
@@ -77,13 +79,14 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
     api.grading().then((g) => setSchemes(g.schemes)).catch(() => undefined);
     const asgId = query.get("assignment");
     if (asgId) api.assignment(asgId).then(setAssignment).catch(() => undefined);
-    api
-      .get(id)
-      .then((s) => {
+    // Personas fill the run's variables, so they load before the first session starts.
+    Promise.all([api.get(id), api.personas().catch(() => ({ templates: [], personas: [] }) as PersonaLibrary)])
+      .then(([s, lib]) => {
         setSim(s);
+        setPersonaLib(lib);
         const want = recordInto ?? query.get("scenario");
         const scenarioId = getScenario(s, want)?.id ?? ((query.get("mode") ?? "open") !== "open" ? s.scenarios[0]?.id ?? null : null);
-        setSession(createSession(s, scenarioId));
+        setSession(createSession(s, scenarioId, Date.now(), undefined, sessionPersonaVariables(s, scenarioId, lib)));
         if (!scenarioId && !recordInto) setMode("open");
       })
       .catch((e) => setError(e.message));
@@ -114,6 +117,9 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   const score = scoreSession(sim, session, Date.now(), scheme.points);
   const clock = timeLeft(session, scheme);
   const objectives = mode === "open" && !recordInto ? evaluateObjectives(sim, session, scheme) : [];
+
+  /** A fresh run: new random values, this scenario's personas. */
+  const newRun = (scenarioId: string | null) => createSession(sim, scenarioId, Date.now(), undefined, sessionPersonaVariables(sim, scenarioId, personaLib));
 
   const finish = (s: SessionState, completed: boolean, m: Mode) => {
     const sc = getScenario(sim, s.scenarioId);
@@ -168,14 +174,14 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
 
   const changeMode = (m: Mode) => {
     let s = session;
-    if (m !== "open" && !s.scenarioId && sim.scenarios.length) s = createSession(sim, sim.scenarios[0].id);
+    if (m !== "open" && !s.scenarioId && sim.scenarios.length) s = newRun(sim.scenarios[0].id);
     setSession(switchMode(s, m));
     setMode(m);
     setHint("");
   };
 
   const changeScenario = (scenarioId: string | null) => {
-    setSession(createSession(sim, scenarioId));
+    setSession(newRun(scenarioId));
     setSummary(null);
     setHint("");
     if (!scenarioId) setMode("open");
@@ -183,7 +189,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
 
   const restart = (m: Mode = mode) => {
     setAssignmentMet(undefined);
-    setSession(createSession(sim, session.scenarioId));
+    setSession(newRun(session.scenarioId));
     setMode(m);
     setSummary(null);
     setHint("");
