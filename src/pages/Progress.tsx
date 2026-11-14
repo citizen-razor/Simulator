@@ -1,12 +1,17 @@
 /**
- * Trainee progress. #/progress lists every named trainee; #/progress/<name> shows one
+ * Progress. #/progress lists the people you may see (Admin-Builders: everyone; leaders:
+ * their reporting tree); #/progress/<userId> shows one person. The server only sends
+ * attempts you may see; this page keys them by person (account id).
  * trainee's status per scenario, score trends, and the steps they struggle with.
  * All figures come from saved attempts (see shared/progress.ts for the definitions).
  */
 import { useEffect, useMemo, useState } from "react";
-import { MASTERY_SCORE, summarizeTrainee, summarizeTrainees, topicProgress, type ScenarioStatus } from "../../shared/progress";
+import { MASTERY_SCORE, summarizeTrainee, topicProgress, type ScenarioStatus } from "../../shared/progress";
 import type { Taxonomy } from "../../shared/library";
-import { assignmentStatus, byUrgency, localToday, sameName, type Assignment } from "../../shared/assignments";
+import { assignmentStatus, byUrgency, localToday, type Assignment } from "../../shared/assignments";
+import { canView, reportingTree } from "../../shared/people";
+import { useAuth } from "../lib/auth";
+import type { DirectoryPerson } from "../api";
 import { AssignmentBadge, dueText, REQUIREMENT_SHORT } from "../components/AssignmentBits";
 import type { Attempt } from "../../shared/schema";
 import { api } from "../api";
@@ -32,7 +37,9 @@ function Trend({ value }: { value: number | null }) {
   return <span className={value > 0 ? "trend-up" : "trend-down"}>{value > 0 ? `▲ +${value}` : `▼ ${value}`}</span>;
 }
 
-export default function Progress({ name }: { name?: string }) {
+export default function Progress({ userId }: { userId?: string }) {
+  const auth = useAuth();
+  const [directory, setDirectory] = useState<DirectoryPerson[] | null>(null);
   const [attempts, setAttempts] = useState<Attempt[] | null>(null);
   const [error, setError] = useState("");
   const [simTags, setSimTags] = useState<Record<string, string[]>>({});
@@ -40,25 +47,52 @@ export default function Progress({ name }: { name?: string }) {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   useEffect(() => {
     api.assignments().then(setAssignments).catch(() => undefined);
+    api.directory().then(setDirectory).catch(() => setDirectory([]));
     api.attempts().then(setAttempts).catch((e) => setError(e.message));
     api.list().then((sims) => setSimTags(Object.fromEntries(sims.map((s) => [s.id, s.tagIds])))).catch(() => undefined);
     api.taxonomy().then(setTaxonomy).catch(() => undefined);
   }, []);
 
   if (error) return <div className="page"><div className="alert error">{error}</div></div>;
-  if (!attempts) return <div className="page muted">Loading…</div>;
-  return name ? (
-    <TraineeDetail name={name} attempts={attempts} simTags={simTags} taxonomy={taxonomy} assignments={assignments.filter((a) => sameName(a.trainee, name))} />
-  ) : (
-    <Overview attempts={attempts} assignments={assignments} />
-  );
+  if (!attempts || !directory || !auth.user) return <div className="page muted">Loading…</div>;
+  // Key everything by account id; the progress maths groups by the "trainee" field.
+  const keyed = attempts.filter((a) => a.userId).map((a) => ({ ...a, trainee: a.userId! }));
+  const keyedAssignments = assignments.filter((a) => a.userId).map((a) => ({ ...a, trainee: a.userId! }));
+  const nameOf = (id: string) => directory.find((p) => p.id === id)?.name ?? "Unknown";
+
+  if (userId) {
+    if (!canView({ id: auth.user.id, roles: auth.roles }, directory, userId)) {
+      return <div className="page"><div className="empty"><p>You can only see your own progress{auth.isLeader ? " and your team's" : ""}.</p><a href={`#/progress/${auth.user.id}`}>My progress</a></div></div>;
+    }
+    return (
+      <TraineeDetail
+        name={userId}
+        displayName={nameOf(userId)}
+        attempts={keyed}
+        simTags={simTags}
+        taxonomy={taxonomy}
+        assignments={keyedAssignments.filter((a) => a.trainee === userId)}
+      />
+    );
+  }
+  const team = auth.isAdmin
+    ? directory.filter((p) => p.active && p.id !== auth.user!.id)
+    : directory.filter((p) => reportingTree(directory, auth.user!.id).has(p.id));
+  return <Overview people={team} attempts={keyed} assignments={keyedAssignments} isAdmin={auth.isAdmin} myId={auth.user.id} />;
 }
 
-function Overview({ attempts, assignments }: { attempts: Attempt[]; assignments: Assignment[] }) {
-  const trainees = useMemo(() => summarizeTrainees(attempts), [attempts]);
+function Overview({ people, attempts, assignments, isAdmin, myId }: { people: DirectoryPerson[]; attempts: Attempt[]; assignments: Assignment[]; isAdmin: boolean; myId: string }) {
+  // Everyone you may see, including people who haven't tried anything yet.
+  const trainees = useMemo(
+    () =>
+      people
+        .map((p) => ({ ...summarizeTrainee(p.id, attempts), display: p.name }))
+        .sort((a, b) => b.lastActive.localeCompare(a.lastActive) || a.display.localeCompare(b.display)),
+    [people, attempts],
+  );
   const today = localToday();
   const assignmentSummary = (name: string) => {
-    const mine = assignments.filter((a) => sameName(a.trainee, name)).map((a) => assignmentStatus(a, attempts, today));
+    const mine = assignments.filter((a) => a.trainee === name).map((a) => assignmentStatus(a, attempts, today));
     if (!mine.length) return <span className="muted">–</span>;
     const done = mine.filter((s) => s.state === "done").length;
     const overdue = mine.filter((s) => s.state === "overdue").length;
@@ -69,21 +103,22 @@ function Overview({ attempts, assignments }: { attempts: Attempt[]; assignments:
       </>
     );
   };
-  const unnamed = attempts.filter((a) => !a.trainee).length;
   return (
     <div className="page">
       <div className="page-head">
         <div>
-          <h1>Trainee progress</h1>
+          <h1>{isAdmin ? "Progress" : "My team"}</h1>
           <p className="muted">
-            A scenario is <b>mastered</b> when a trainee completes it in Scenario mode, without guided help, at or above its grading
-            scheme's mastery mark ({MASTERY_SCORE} with Standard grading).
+            {isAdmin ? "Everyone in the organisation." : "Everyone who reports to you, directly or further down."} A scenario is{" "}
+            <b>mastered</b> when it's completed in Scenario mode, without guided help, at or above its grading scheme's mastery mark
+            ({MASTERY_SCORE} with Standard grading).
           </p>
         </div>
+        <a className="btn" href={`#/progress/${myId}`}>My progress</a>
       </div>
       {trainees.length === 0 ? (
         <div className="empty">
-          <p>No trainee results yet. When someone plays a Guided or Scenario run, they're asked for their name and their progress appears here.</p>
+          <p>{isAdmin ? "Nobody else in the organisation yet. Add people on the People page." : "Nobody reports to you yet."}</p>
         </div>
       ) : (
         <table className="results-table">
@@ -93,7 +128,7 @@ function Overview({ attempts, assignments }: { attempts: Attempt[]; assignments:
           <tbody>
             {trainees.map((t) => (
               <tr key={t.name} className="clickable" onClick={() => (window.location.hash = `#/progress/${encodeURIComponent(t.name)}`)}>
-                <td><a href={`#/progress/${encodeURIComponent(t.name)}`}><b>{t.name}</b></a></td>
+                <td><a href={`#/progress/${encodeURIComponent(t.name)}`}><b>{t.display}</b></a>{t.attempts === 0 && <div className="muted small">No attempts yet</div>}</td>
                 <td>{assignmentSummary(t.name)}</td>
                 <td>{t.mastered} of {t.scenarios.length} attempted</td>
                 <td>{t.avgSolo ?? <span className="muted">–</span>}</td>
@@ -105,13 +140,14 @@ function Overview({ attempts, assignments }: { attempts: Attempt[]; assignments:
           </tbody>
         </table>
       )}
-      {unnamed > 0 && <p className="muted small">{unnamed} older attempt{unnamed > 1 ? "s" : ""} without a trainee name {unnamed > 1 ? "aren't" : "isn't"} included.</p>}
     </div>
   );
 }
 
-function TraineeDetail({ name, attempts, simTags, taxonomy, assignments }: {
+function TraineeDetail({ name, displayName, attempts, simTags, taxonomy, assignments }: {
+  /** The person's account id (attempts are keyed by it). */
   name: string;
+  displayName: string;
   attempts: Attempt[];
   simTags: Record<string, string[]>;
   taxonomy: Taxonomy;
@@ -132,7 +168,7 @@ function TraineeDetail({ name, attempts, simTags, taxonomy, assignments }: {
     return (
       <div className="page">
         <a href="#/progress">← All trainees</a>
-        <div className="empty"><p>No attempts found for “{name}”.</p></div>
+        <div className="empty"><p>{displayName} hasn't attempted any scenarios yet.</p></div>
       </div>
     );
   }
@@ -140,7 +176,7 @@ function TraineeDetail({ name, attempts, simTags, taxonomy, assignments }: {
   return (
     <div className="page">
       <a href="#/progress">← All trainees</a>
-      <h1 className="trainee-name">{t.name}</h1>
+      <h1 className="trainee-name">{displayName}</h1>
       <p className="muted">Last active {fmtDate(t.lastActive)}</p>
 
       <div className="tiles">
@@ -219,7 +255,7 @@ function TraineeDetail({ name, attempts, simTags, taxonomy, assignments }: {
         and the dashed line is the mastery mark. Hover a dot for details.
       </p>
 
-      <h2 className="section">Where {t.name} struggles</h2>
+      <h2 className="section">Where {displayName} struggles</h2>
       {t.trouble.length === 0 ? (
         <p className="muted">No errors or hints recorded yet{attempts.some((a) => a.trainee === name && a.troubleSteps.length === 0 && a.errors > 0) ? " (older attempts didn't record which step went wrong)" : ""}.</p>
       ) : (

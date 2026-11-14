@@ -25,7 +25,7 @@ import { evaluateObjectives, gradeSession, resolveScheme, timeLeft, type GradeRe
 import { STANDARD_SCHEME, type GradingScheme } from "../../shared/library";
 import { sessionPersonaVariables, type PersonaLibrary } from "../../shared/personas";
 import { meetsRequirement, REQUIREMENT_TEXT, type Assignment } from "../../shared/assignments";
-import { loadTrainee, saveTrainee } from "../lib/trainee";
+import { useAuth } from "../lib/auth";
 
 const MODES: { id: Mode; label: string; blurb: string }[] = [
   { id: "open", label: "Open world", blurb: "Explore freely. Nothing is scored." },
@@ -69,9 +69,9 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   /** After a run launched from an assignment: did it satisfy it? (null = awaiting marking) */
   const [assignmentMet, setAssignmentMet] = useState<boolean | null | undefined>(undefined);
   const [recording, setRecording] = useState<Step[]>([]);
-  const [trainee, setTrainee] = useState(loadTrainee);
-  const [nameDraft, setNameDraft] = useState("");
-  const [askName, setAskName] = useState(false);
+  const auth = useAuth();
+  // Attempts are saved under the signed-in account (the server sets this; it's sent for display).
+  const trainee = auth.user?.name ?? "";
   const [, tick] = useState(0);
   const toastId = useRef(0);
 
@@ -160,7 +160,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   };
 
   const handle = (ev: InteractionEvent) => {
-    if (summary || needName) return;
+    if (summary) return;
     if (recordInto) {
       const found = findElement(sim, ev.elementId);
       if (found) setRecording((r) => [...r, recordedStep(found.element, ev.type === "commit" ? ev.value : undefined)]);
@@ -212,17 +212,6 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   };
 
   const elapsed = Math.round((Date.now() - session.startedAt) / 1000);
-  // Scored runs need a name so results can be told apart. Open world and recording don't.
-  const needName = askName || (!trainee && mode !== "open" && !!scenario && !recordInto);
-  const confirmName = () => {
-    const name = nameDraft.trim();
-    if (!name) return;
-    saveTrainee(name);
-    setTrainee(name);
-    setAskName(false);
-    // The clock starts once the trainee is ready, not while they type their name.
-    if (!session.finished && session.stepIndex === 0 && session.errors === 0) setSession({ ...session, startedAt: Date.now() });
-  };
   const judged = mode !== "open" && !!scenario;
   const noScenarios = sim.scenarios.length === 0;
 
@@ -259,13 +248,8 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
               ))}
             </select>
           )}
-          {!recordInto && (
-            <button className="btn sm ghost" title="Change trainee" onClick={() => { setNameDraft(trainee); setAskName(true); }}>
-              👤 {trainee || "Set name"}
-            </button>
-          )}
           <button className="btn sm" onClick={() => restart()}>↺ Restart</button>
-          <a className="btn sm ghost" href={`#/edit/${sim.id}`}>Edit</a>
+          {auth.isBuilder && <a className="btn sm ghost" href={`#/edit/${sim.id}`}>Edit</a>}
         </div>
       </div>
 
@@ -299,19 +283,6 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
               onActivate={(el) => handle({ type: "activate", elementId: el.id })}
               onCommit={(el, value) => handle({ type: "commit", elementId: el.id, value })}
             />
-            {needName && (
-              <div className="name-gate">
-                <form className="panel" onSubmit={(e) => { e.preventDefault(); confirmName(); }}>
-                  <h3>Who's training?</h3>
-                  <p className="muted small">Your name is saved with your results so you can track progress. It's remembered on this device.</p>
-                  <input autoFocus value={nameDraft} maxLength={100} placeholder="Your name" onChange={(e) => setNameDraft(e.target.value)} />
-                  <div className="row">
-                    <button className="btn primary" type="submit" disabled={!nameDraft.trim()}>Start</button>
-                    {askName && trainee && <button className="btn ghost" type="button" onClick={() => setAskName(false)}>Cancel</button>}
-                  </div>
-                </form>
-              </div>
-            )}
             <div className="toasts" aria-live="polite">
               {toasts.map((t) => (
                 <div key={t.id} className={`toast ${t.tone}`}>{t.text}</div>
@@ -384,9 +355,9 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                   <div className="progress"><span style={{ width: `${(100 * score.stepsCompleted) / Math.max(1, score.stepsTotal)}%` }} /></div>
                   {hint && <div className="hint">💡 {hint}</div>}
                   <div className="row">
-                    <button className="btn sm" onClick={askHint} disabled={session.finished || needName}>Hint (−5)</button>
-                    <button className="btn sm ghost" onClick={() => changeMode("guided")} disabled={session.finished || needName}>Switch to guided</button>
-                    <button className="btn sm ghost danger" onClick={() => finish(session, false, mode)} disabled={session.finished || needName}>Give up</button>
+                    <button className="btn sm" onClick={askHint} disabled={session.finished}>Hint (−5)</button>
+                    <button className="btn sm ghost" onClick={() => changeMode("guided")} disabled={session.finished}>Switch to guided</button>
+                    <button className="btn sm ghost danger" onClick={() => finish(session, false, mode)} disabled={session.finished}>Give up</button>
                   </div>
                 </section>
               )}

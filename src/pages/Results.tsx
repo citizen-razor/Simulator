@@ -91,8 +91,10 @@ export default function Results({ simulationId }: { simulationId?: string }) {
                 <tr className="clickable" onClick={() => setOpen(open === a.id ? null : a.id)}>
                   <td>{new Date(a.finishedAt).toLocaleString()}</td>
                   <td>
-                    {a.trainee ? (
-                      <a href={`#/progress/${encodeURIComponent(a.trainee)}`} onClick={(e) => e.stopPropagation()}>{a.trainee}</a>
+                    {a.trainee && a.userId ? (
+                      <a href={`#/progress/${encodeURIComponent(a.userId)}`} onClick={(e) => e.stopPropagation()}>{a.trainee}</a>
+                    ) : a.trainee ? (
+                      <span title="Saved before accounts; doesn't match anyone's name">{a.trainee}</span>
                     ) : (
                       <span className="muted">–</span>
                     )}

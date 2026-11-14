@@ -26,8 +26,10 @@ cp .env.example .env          # then paste your Anthropic API key into .env
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173**. A sample *Helpdesk Ticketing* simulation is included, so
-you can try every mode right away. Manual authoring works without an API key; only
+Open **http://127.0.0.1:5173**. The first time, you create your organisation and your own
+account (you become its first **Admin-Builder**), then add everyone else on the **People**
+page. A sample *Helpdesk Ticketing* simulation is included, so you can try every mode right
+away. Manual authoring works without an API key; only
 "Generate with AI" and "Ask AI to change it" need one.
 
 | Command | What it does |
@@ -51,7 +53,7 @@ individual simulations (below).
   never overwrites an existing one. Plain simulation JSON (without images) also works.
 - **Tags, grading schemes and personas** travel with the file and are matched by name on import, since
   ids differ between installations. Anything this installation doesn't have is **added**
-  if an admin imports the file (unlock admin mode first), and otherwise left out with a
+  if an Admin-Builder imports the file, and otherwise left out with a
   warning.
 - Imported files are checked before anything is saved. The simulation is validated, and
   each image's actual content must match its type, so a disguised file is rejected. Any
@@ -121,7 +123,7 @@ You can also click **Start blank** or **Build manually from N images** to author
 ### Libraries: topics, tags and grading
 
 The **Libraries** page holds shared lists that every simulation can use. Editing them needs
-admin mode (below); everyone can view them.
+the Admin-Builder role (see "Accounts, roles and teams" below); everyone can view them.
 
 - **Topics & tags:** topics (e.g. "Customer service") contain tags (e.g. "Refunds"). Tag a
   simulation in the editor's ⚙ Settings. You can then filter the Library page by topic or
@@ -162,16 +164,50 @@ admin mode (below); everyone can view them.
   the scheme's "reached a screen" and "system state" checks at this simulation's own
   screens and variables, since each simulation has different ones.
 
-**Storage** (Libraries → Storage, admin only) shows how much space screenshots use, and
+**Storage** (Libraries → Storage, Admin-Builders only) shows how much space screenshots use, and
 deletes the ones no simulation uses any more. Images less than a day old are always kept,
 in case they belong to an editor that hasn't been saved yet.
 
-**The Admin-Builder role:** set `ADMIN_PIN` in `.env` and restart. Everything that shapes
-training for everyone then needs the PIN: tags, grading schemes and rubrics, personas and
-persona templates, assignments, trainer marking, and storage clean-up. Building simulations
-doesn't. The PIN (entered on the page; remembered until the browser tab
-closes). Five wrong PINs within a minute lock it for a minute. With no PIN set, anyone can
-edit. This is a light lock for one machine, not a replacement for real logins.
+### Accounts, roles and teams
+
+Everyone signs in with their email and password. Roles stack, so one person can hold several:
+
+| Role | Can |
+|---|---|
+| **Admin-Builder** | Everything: the libraries (tags, grading schemes and rubrics, personas and templates), assignments for anyone, trainer marking, storage, and managing people |
+| **Builder** | Build and edit simulations and scenarios (create, AI generation, import/export). Can view, but not edit, the libraries |
+| **Leader** | Everything a learner can, plus: see every learner in their reporting tree (direct reports and further down), assign them training, and see a team leaderboard |
+| **Learner** | Everyone. Take simulations, receive assignments, see their own results and progress, and see the leaderboard |
+
+**Hierarchy:** each person can have a manager. Anyone with active people reporting to them
+is a Leader automatically; the role can also be given by hand. Leaders see their whole tree,
+not just direct reports. Loops (someone ending up as their own manager) are refused.
+
+**People page** (Admin-Builders): add people (each gets a one-time password, shown once),
+set roles and managers, deactivate people (they're signed out at once and can't sign in;
+their history is kept), reset passwords, and **import a CSV** with the columns
+`email, name, manager_email, roles`. Everyone can change their own password under their name
+in the top bar.
+
+**SCIM (sync from Okta, Microsoft Entra ID, …):** on the People page, turn on SCIM to get a
+bearer token, then point your identity provider's SCIM 2.0 app at `https://<your
+host>/scim/v2`. It creates, updates and deactivates people, and sends each person's manager
+(the enterprise extension), which builds the hierarchy. Deleting someone in the identity
+provider deactivates them here. Roles are managed in the app; people synced by SCIM start as
+learners. SCIM needs the app to be hosted where the identity provider can reach it; it can
+be tried locally with `curl`.
+
+**Organisations:** every person, simulation and result belongs to an organisation, so one
+installation can later serve several customers separately. For now there is one: the one
+you create on first run. (The existing `data/` folder is that organisation's storage.)
+
+### Leaderboard
+
+Everyone in the organisation appears by name. The main board ranks people by **scenarios
+mastered**, then by **average solo score**; people tied on both share a rank. Tabs:
+**Organisation**, **My team** (leaders), **By topic** (scenarios tagged with that topic),
+and **By scenario** (best solo score, then fastest time). Your own row is highlighted, with
+"You're #N of M" at the top.
 
 ### Scoring
 
@@ -181,31 +217,33 @@ numbers, add a time limit, and/or blend in a rubric:
 `final = points × (100 − rubric weight)% + rubric % met × rubric weight%`. Trainees can open
 "How you're graded" in the Player to see the rules for their run. If a rubric has
 trainer-marked criteria, the score is provisional and marked "⏳ To mark" on the Results
-page until an admin marks them; then the score and pass/fail update. Before a scored run, the Player asks for the trainee's name
-(remembered on that device; click the name in the top bar to change it). Results (trainee,
-score, mistakes, time, assisted or not, path taken) are saved and shown on the **Results**
-page, where you can filter by trainee.
+page until an Admin-Builder marks them; then the score and pass/fail update. Every Guided
+and Scenario run is saved under the signed-in person's account. Results (score, mistakes,
+time, assisted or not, path taken) appear on the **Results** page for Admin-Builders (everyone)
+and leaders (their team), and on each person's own **My progress**.
 
 ### Assignments and "My training"
 
-On **Assignments** (creating needs admin mode), a trainer assigns a scenario to one or more
-trainees. Each assignment has a requirement (**complete** it, guided help allowed; **pass**
+On **Assignments**, Admin-Builders assign a scenario to anyone, and leaders to anyone in their
+reporting tree ("Add my whole team" picks everyone at once). Each assignment has a requirement (**complete** it, guided help allowed; **pass**
 it in Scenario mode; or **master** it without help), an optional due date, and an optional
 note.
 
-Trainees open **My training**, enter their name once per device, and see their assignments,
+Learners open **My training** to see their assignments,
 most urgent first, with **Start** and **Practise with guidance** buttons. The Player shows
 what's required, and the end-of-run summary says whether the assignment is now complete.
 
 Status is worked out from results: **done**, **awaiting marking**, **overdue**, **due
 soon** (within 3 days), or **to do**. Credit follows the work: any qualifying attempt counts,
 including one a trainee made on their own before the scenario was assigned. Those are
-marked "already done before it was assigned". Names match regardless of capitals and spaces. Assignments also appear on each
-trainee's Progress page.
+marked "already done before it was assigned". Assignments also appear on each person's
+progress page.
 
 ### Trainee progress
 
-The **Progress** page lists every trainee. Click one to see:
+**My progress** shows your own record. Leaders get **My team** (everyone in their reporting
+tree, including people who haven't started) and Admin-Builders get **Progress** (everyone).
+Click a person to see:
 - each scenario's status:
   - **✓ Mastered:** completed in Scenario mode without guided help, at or above the grading
   scheme's mastery mark (80 with Standard)
@@ -279,7 +317,11 @@ shared/assignments.ts assignment requirements and status
 shared/personas.ts    persona templates, personas, and the {{role.field}} variables they provide
 shared/library.ts     topic/tag and grading-scheme data model
 shared/grading.ts     applies a grading scheme: points, rubric, time limit, objectives
-server/admin.ts       admin PIN check
+server/auth.ts        accounts, sign-in, sessions, organisations
+server/people.ts      people management and CSV import routes
+server/scim.ts        SCIM 2.0 provisioning (users + managers)
+shared/people.ts      roles, hierarchy, permissions, CSV parsing
+shared/leaderboard.ts leaderboard ranking
 samples/              the built-in Helpdesk sample
 tests/                engine and AI-conversion tests
 ```
@@ -288,7 +330,7 @@ tests/                engine and AI-conversion tests
 
 ## Security
 
-The app is designed to run on your own computer.
+The app currently runs on your own computer; hosting it for others is the next big step.
 
 - **Your API key stays on the server.** It is read from `.env` (which git ignores) and is
   never sent to the browser.
@@ -298,8 +340,17 @@ The app is designed to run on your own computer.
   "DNS rebinding"). It also requires a custom `X-Simulator` header on every change, which
   browsers won't let another site add. Other sites therefore can't modify data or spend
   your API credits.
-- **Admin PIN.** If set, it is compared in constant time, wrong guesses are rate-limited,
-  and the server (not just the page) refuses library edits and marking without it.
+- **Accounts.** Passwords are stored as salted scrypt hashes (never in plain text) and
+  compared in constant time; at least 10 characters. Sign-in is rate-limited. Sessions use a
+  random token in an HttpOnly, SameSite=Strict cookie, and only a hash of it is stored.
+  Deactivating someone signs them out everywhere.
+- **Permissions are enforced by the server**, on every request: the menu just hides what
+  you can't use. Attempts are always saved under the signed-in person (the browser can't
+  claim to be someone else). People only receive results they may see. The leaderboard is
+  computed on the server, so learners see rankings, not other people's attempts.
+- **Organisations are kept apart** by giving each its own storage folder, chosen from the
+  signed-in person's organisation on every request. SCIM tokens are stored hashed and
+  belong to one organisation.
 - **Validated input.** Every saved simulation, attempt, upload and import is checked against a
   schema, and uploaded images must really be PNG, JPEG, WebP or GIF (checked from the file's
   contents, not just its name). File and asset ids must match strict patterns before they touch the disk, which
@@ -308,8 +359,8 @@ The app is designed to run on your own computer.
   It is never rendered or executed. In production a strict Content-Security-Policy is
   applied.
 
-Hosting this for other people would need more: user accounts and login, per-user data,
-rate limits on AI calls, HTTPS, and a real database.
+Hosting this for other people still needs: HTTPS, a real database, company single sign-on
+(SAML/OIDC), and limits on AI spending.
 
 ## Costs
 
@@ -326,5 +377,6 @@ actual usage in the Claude Console. Playing and editing simulations makes no AI 
 - Video narration (audio) isn't transcribed; only frames are used.
 - Within a path, clicks must follow the step order (field entries can be done in any order).
   Use alternative paths for other valid orders.
-- Single user, local files. Moving to a database and accounts is the main step before hosting.
+- Local files and a local server. Hosting (HTTPS, a database, single sign-on) is the main
+  step before other people can use it.
 - See [docs/BACKLOG.md](docs/BACKLOG.md) for everything still to do.

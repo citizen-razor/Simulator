@@ -1,61 +1,36 @@
 /**
  * A trainee's own assignments (#/my), most urgent first, with a Start button for each.
- * The trainee is whoever's name is remembered on this device (the same name the Player asks for).
+ * Shows the signed-in person's own assignments.
  */
 import { useEffect, useMemo, useState } from "react";
 import { assignmentStatus, byUrgency, localToday, REQUIREMENT_TEXT, type Assignment } from "../../shared/assignments";
 import type { Attempt } from "../../shared/schema";
 import { api } from "../api";
 import { AssignmentBadge, dueText } from "../components/AssignmentBits";
-import { loadTrainee, saveTrainee } from "../lib/trainee";
+import { useAuth } from "../lib/auth";
 
 export default function MyTraining() {
-  const [name, setName] = useState(loadTrainee);
-  const [draft, setDraft] = useState("");
+  const auth = useAuth();
+  const me = auth.user!;
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!name) return;
-    setAssignments(null);
-    Promise.all([api.assignments(name), api.attempts()])
+    // Leaders also receive their team's assignments; this page is just your own.
+    Promise.all([api.assignments(), api.attempts()])
       .then(([a, t]) => {
-        setAssignments(a);
-        setAttempts(t);
+        setAssignments(a.filter((x) => x.userId === me.id));
+        setAttempts(t.filter((x) => x.userId === me.id));
       })
       .catch((e) => setError(e.message));
-  }, [name]);
+  }, [me.id]);
 
   const today = localToday();
   const rows = useMemo(
     () => (assignments ?? []).map((assignment) => ({ assignment, status: assignmentStatus(assignment, attempts, today) })).sort(byUrgency),
     [assignments, attempts, today],
   );
-
-  if (!name) {
-    return (
-      <div className="page narrow">
-        <h1>My training</h1>
-        <form
-          className="panel"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!draft.trim()) return;
-            saveTrainee(draft.trim());
-            setName(draft.trim());
-          }}
-        >
-          <h3>Who's training?</h3>
-          <p className="muted small">Enter your name to see what's been assigned to you. It's remembered on this device.</p>
-          <div className="row tight-top">
-            <input autoFocus value={draft} maxLength={100} placeholder="Your name" onChange={(e) => setDraft(e.target.value)} />
-            <button className="btn primary" disabled={!draft.trim()}>Show my training</button>
-          </div>
-        </form>
-      </div>
-    );
-  }
 
   const todo = rows.filter((r) => r.status.state !== "done");
   const done = rows.filter((r) => r.status.state === "done");
@@ -64,12 +39,9 @@ export default function MyTraining() {
       <div className="page-head">
         <div>
           <h1>My training</h1>
-          <p className="muted">
-            Signed in as <b>{name}</b>.{" "}
-            <button className="link-btn add" onClick={() => { setName(""); setDraft(""); }}>Not you?</button>
-          </p>
+          <p className="muted">What's been assigned to you, most urgent first.</p>
         </div>
-        <a className="btn" href={`#/progress/${encodeURIComponent(name)}`}>My progress</a>
+        <a className="btn" href={`#/progress/${me.id}`}>My progress</a>
       </div>
       {error && <div className="alert error">{error}</div>}
       {!assignments ? (

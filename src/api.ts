@@ -1,9 +1,29 @@
 /** Thin wrappers around the local API. Every write sends the X-Simulator header the server requires. */
 import type { Assignment } from "../shared/assignments";
+import type { Role, User } from "../shared/people";
+
+export interface DirectoryPerson {
+  id: string;
+  name: string;
+  managerId: string | null;
+  active: boolean;
+  roles: Role[];
+}
+
+export interface LeaderRow {
+  rank: number;
+  userId: string;
+  name: string;
+  mastered?: number;
+  attempted?: number;
+  avgSolo?: number | null;
+  best?: number;
+  durationSec?: number;
+  attempts?: number;
+}
 import type { GradingLibrary, GradingScheme, Taxonomy } from "../shared/library";
 import type { Persona, PersonaLibrary, PersonaTemplate } from "../shared/personas";
 import type { Attempt, Simulation } from "../shared/schema";
-import { adminPin } from "./lib/admin";
 
 export interface SimSummary {
   id: string;
@@ -30,9 +50,13 @@ export interface AiProgress {
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
-    headers: { "Content-Type": "application/json", "X-Simulator": "1", ...(adminPin() ? { "X-Admin-Pin": adminPin()! } : {}) },
+    headers: { "Content-Type": "application/json", "X-Simulator": "1" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  if (res.status === 401) {
+    // Session ended (signed out elsewhere, deactivated, expired): show the sign-in page.
+    import("./lib/auth").then((m) => m.refreshAuth());
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error ? `${err.error}${err.details ? `: ${JSON.stringify(err.details[0])}` : ""}` : `${res.status} ${res.statusText}`);
@@ -51,8 +75,22 @@ export const api = {
   attempts: (simulationId?: string) =>
     request<Attempt[]>("GET", `/api/attempts${simulationId ? `?simulationId=${encodeURIComponent(simulationId)}` : ""}`),
   importSimulation: (data: unknown) => request<{ simulation: Simulation; warnings: string[] }>("POST", "/api/import", data),
-  adminStatus: () => request<{ pinRequired: boolean }>("GET", "/api/admin/status"),
-  verifyPin: (pin: string) => request<{ ok: true }>("POST", "/api/admin/verify", { pin }),
+  login: (email: string, password: string) => request<{ ok: true }>("POST", "/api/auth/login", { email, password }),
+  setup: (body: { orgName: string; name: string; email: string; password: string }) => request<{ ok: true }>("POST", "/api/auth/setup", body),
+  changePassword: (current: string, next: string) => request<{ ok: true }>("POST", "/api/auth/password", { current, next }),
+  directory: () => request<DirectoryPerson[]>("GET", "/api/people/directory"),
+  people: () => request<User[]>("GET", "/api/people"),
+  addPerson: (body: { name: string; email: string; roles: Role[]; managerId: string | null }) =>
+    request<{ id: string; temporaryPassword: string }>("POST", "/api/people", body),
+  updatePerson: (id: string, patch: Partial<Pick<User, "name" | "email" | "roles" | "managerId" | "active">>) =>
+    request<{ ok: true }>("PATCH", `/api/people/${encodeURIComponent(id)}`, patch),
+  resetPassword: (id: string) => request<{ temporaryPassword: string }>("POST", `/api/people/${encodeURIComponent(id)}/password`),
+  importPeople: (csv: string) =>
+    request<{ created: { email: string; name: string; temporaryPassword: string }[]; updated: number; errors: string[] }>("POST", "/api/people/import", { csv }),
+  scimStatus: () => request<{ enabled: boolean; path: string }>("GET", "/api/people/scim"),
+  issueScim: () => request<{ token: string; path: string }>("POST", "/api/people/scim"),
+  revokeScim: () => request<void>("DELETE", "/api/people/scim"),
+  leaderboard: (scope: string) => request<{ scope: string; rows: LeaderRow[] }>("GET", `/api/leaderboard?scope=${encodeURIComponent(scope)}`),
   taxonomy: () => request<Taxonomy>("GET", "/api/library/taxonomy"),
   saveTaxonomy: (t: Taxonomy) => request<Taxonomy>("PUT", "/api/library/taxonomy", t),
   grading: () => request<GradingLibrary>("GET", "/api/library/grading"),
@@ -64,7 +102,7 @@ export const api = {
   assignments: (trainee?: string) =>
     request<Assignment[]>("GET", `/api/assignments${trainee ? `?trainee=${encodeURIComponent(trainee)}` : ""}`),
   assignment: (id: string) => request<Assignment>("GET", `/api/assignments/${encodeURIComponent(id)}`),
-  createAssignments: (body: { trainees: string[]; simulationId: string; scenarioId: string; requirement: string; dueDate: string | null; note: string }) =>
+  createAssignments: (body: { userIds: string[]; simulationId: string; scenarioId: string; requirement: string; dueDate: string | null; note: string }) =>
     request<Assignment[]>("POST", "/api/assignments", body),
   deleteAssignment: (id: string) => request<void>("DELETE", `/api/assignments/${encodeURIComponent(id)}`),
   personas: () => request<PersonaLibrary>("GET", "/api/library/personas"),

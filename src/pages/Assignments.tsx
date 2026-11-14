@@ -1,17 +1,21 @@
 /**
- * Trainers assign scenarios to trainees (#/assignments). Creating and removing needs
- * the Admin-Builder; everyone can view. Status comes from the trainees' attempts.
+ * Assigning scenarios (#/assignments). Admin-Builders assign to anyone; leaders to people
+ * in their reporting tree (the server enforces both). You see the assignments of people you
+ * may see. Status comes from their attempts.
  */
 import { useEffect, useMemo, useState } from "react";
 import { assignmentStatus, byUrgency, localToday, REQUIREMENT_TEXT, Requirements, type Assignment, type AssignmentState, type Requirement } from "../../shared/assignments";
 import type { Attempt, Simulation } from "../../shared/schema";
-import { api, type SimSummary } from "../api";
-import { AdminBar } from "../components/AdminGate";
+import { api, type DirectoryPerson, type SimSummary } from "../api";
 import { AssignmentBadge, dueText, REQUIREMENT_SHORT } from "../components/AssignmentBits";
-import { useAdmin } from "../lib/admin";
+import { useAuth } from "../lib/auth";
+import { reportingTree } from "../../shared/people";
 
 export default function Assignments() {
-  const { isAdmin } = useAdmin();
+  const auth = useAuth();
+  const isAdmin = auth.isAdmin;
+  const canAssign = auth.isAdmin || auth.isLeader;
+  const [directory, setDirectory] = useState<DirectoryPerson[]>([]);
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [sims, setSims] = useState<SimSummary[]>([]);
@@ -20,8 +24,9 @@ export default function Assignments() {
   const [stateFilter, setStateFilter] = useState<AssignmentState | "">("");
 
   const load = () =>
-    Promise.all([api.assignments(), api.attempts(), api.list()])
-      .then(([a, t, s]) => {
+    Promise.all([api.assignments(), api.attempts(), api.list(), api.directory()])
+      .then(([a, t, s, d]) => {
+        setDirectory(d);
         setAssignments(a);
         setAttempts(t);
         setSims(s);
@@ -40,10 +45,12 @@ export default function Assignments() {
         .sort(byUrgency),
     [assignments, attempts, today, who, stateFilter],
   );
-  const knownTrainees = useMemo(
-    () => [...new Set([...attempts.map((a) => a.trainee), ...(assignments ?? []).map((a) => a.trainee)].filter(Boolean))].sort((a, b) => a.localeCompare(b)),
-    [attempts, assignments],
-  );
+  // Who you may assign to: Admin-Builders, anyone active; leaders, their reporting tree.
+  const assignable = useMemo(() => {
+    if (!auth.user) return [];
+    const tree = reportingTree(directory, auth.user.id);
+    return directory.filter((p) => p.active && (isAdmin || tree.has(p.id))).sort((a, b) => a.name.localeCompare(b.name));
+  }, [directory, auth.user, isAdmin]);
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
     for (const a of assignments ?? []) {
@@ -74,9 +81,8 @@ export default function Assignments() {
           </p>
         </div>
       </div>
-      <AdminBar what="assignments" />
       {error && <div className="alert error">{error}</div>}
-      {isAdmin && <AssignForm sims={sims} knownTrainees={knownTrainees} onCreated={load} />}
+      {canAssign && <AssignForm sims={sims} assignable={assignable} leader={!isAdmin} onCreated={load} />}
 
       {assignments && assignments.length > 0 && (
         <>
@@ -98,12 +104,12 @@ export default function Assignments() {
           </div>
           <table className="results-table">
             <thead>
-              <tr><th>Trainee</th><th>Scenario</th><th>Needs to</th><th>Due</th><th>Status</th><th>Attempts</th>{isAdmin && <th />}</tr>
+              <tr><th>Trainee</th><th>Scenario</th><th>Needs to</th><th>Due</th><th>Status</th><th>Attempts</th>{canAssign && <th />}</tr>
             </thead>
             <tbody>
               {rows.map(({ assignment: a, status }) => (
                 <tr key={a.id}>
-                  <td><a href={`#/progress/${encodeURIComponent(a.trainee)}`}>{a.trainee}</a></td>
+                  <td>{a.userId ? <a href={`#/progress/${encodeURIComponent(a.userId)}`}>{a.trainee}</a> : a.trainee}</td>
                   <td>
                     <b>{a.scenarioTitle}</b>
                     <div className="muted small">{a.simulationTitle}</div>
@@ -124,7 +130,7 @@ export default function Assignments() {
                     {status.attempts}
                     {status.bestScore !== null && <div className="muted small">best {status.bestScore}</div>}
                   </td>
-                  {isAdmin && <td><button className="btn sm ghost danger" onClick={() => remove(a)} aria-label="Remove assignment">✕</button></td>}
+                  {canAssign && <td><button className="btn sm ghost danger" onClick={() => remove(a)} aria-label="Remove assignment">✕</button></td>}
                 </tr>
               ))}
             </tbody>
@@ -132,14 +138,13 @@ export default function Assignments() {
           {rows.length === 0 && <p className="muted">Nothing matches these filters.</p>}
         </>
       )}
-      {assignments?.length === 0 && <div className="empty"><p>No assignments yet.{isAdmin ? "" : " The Admin-Builder can create them."}</p></div>}
+      {assignments?.length === 0 && <div className="empty"><p>No assignments yet.{canAssign ? "" : " Leaders and Admin-Builders create them."}</p></div>}
     </div>
   );
 }
 
-function AssignForm({ sims, knownTrainees, onCreated }: { sims: SimSummary[]; knownTrainees: string[]; onCreated: () => void }) {
-  const [trainees, setTrainees] = useState<string[]>([]);
-  const [nameDraft, setNameDraft] = useState("");
+function AssignForm({ sims, assignable, leader, onCreated }: { sims: SimSummary[]; assignable: DirectoryPerson[]; leader: boolean; onCreated: () => void }) {
+  const [chosen, setChosen] = useState<string[]>([]);
   const [simId, setSimId] = useState("");
   const [sim, setSim] = useState<Simulation | null>(null);
   const [scenarioId, setScenarioId] = useState("");
@@ -159,22 +164,15 @@ function AssignForm({ sims, knownTrainees, onCreated }: { sims: SimSummary[]; kn
     }).catch((e) => setError(e.message));
   }, [simId]);
 
-  const addName = (raw: string) => {
-    const names = raw.split(",").map((n) => n.trim()).filter(Boolean);
-    setTrainees((t) => [...t, ...names.filter((n) => !t.some((x) => x.toLowerCase() === n.toLowerCase()))]);
-    setNameDraft("");
-  };
 
   const submit = async () => {
     setBusy(true);
     setError("");
     setMsg("");
-    const pending = nameDraft.trim() ? [...trainees, nameDraft.trim()] : trainees;
     try {
-      const created = await api.createAssignments({ trainees: pending, simulationId: simId, scenarioId, requirement, dueDate: dueDate || null, note });
-      setMsg(`Assigned to ${created.length} trainee${created.length === 1 ? "" : "s"}.`);
-      setTrainees([]);
-      setNameDraft("");
+      const created = await api.createAssignments({ userIds: chosen, simulationId: simId, scenarioId, requirement, dueDate: dueDate || null, note });
+      setMsg(`Assigned to ${created.length} ${created.length === 1 ? "person" : "people"}.`);
+      setChosen([]);
       setNote("");
       onCreated();
     } catch (e) {
@@ -184,36 +182,33 @@ function AssignForm({ sims, knownTrainees, onCreated }: { sims: SimSummary[]; kn
     }
   };
 
-  const ready = (trainees.length > 0 || nameDraft.trim()) && simId && scenarioId;
+  const ready = chosen.length > 0 && simId && scenarioId;
+  const nameOf = (id: string) => assignable.find((p) => p.id === id)?.name ?? id;
   return (
     <section className="panel assign-form">
       <h3>New assignment</h3>
       <div className="field">
-        <span>Trainees</span>
+        <span>People</span>
         <div className="tag-row">
-          {trainees.map((t) => (
-            <span key={t} className="tag">
-              {t}
-              <button className="link-btn" aria-label={`Remove ${t}`} onClick={() => setTrainees(trainees.filter((x) => x !== t))}>✕</button>
+          {chosen.map((id) => (
+            <span key={id} className="tag">
+              {nameOf(id)}
+              <button className="link-btn" aria-label={`Remove ${nameOf(id)}`} onClick={() => setChosen(chosen.filter((x) => x !== id))}>✕</button>
             </span>
           ))}
-          <input
-            list="known-trainees"
-            value={nameDraft}
-            placeholder="Type a name, press Enter"
-            aria-label="Add trainee"
-            onChange={(e) => setNameDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === ",") {
-                e.preventDefault();
-                addName(nameDraft);
-              }
-            }}
-            onBlur={() => nameDraft.trim() && addName(nameDraft)}
-          />
-          <datalist id="known-trainees">{knownTrainees.map((t) => <option key={t} value={t} />)}</datalist>
+          <select value="" aria-label="Add a person" onChange={(e) => e.target.value && setChosen([...chosen, e.target.value])}>
+            <option value="">+ Add a person…</option>
+            {assignable.filter((p) => !chosen.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          {assignable.length > 1 && (
+            <button type="button" className="link-btn add" onClick={() => setChosen(assignable.map((p) => p.id))}>
+              {leader ? "Add my whole team" : "Add everyone"} ({assignable.length})
+            </button>
+          )}
         </div>
-        <small className="muted">Use the same name the trainee enters when they play. Capital letters and spaces don't matter.</small>
+        <small className="muted">
+          {leader ? "You can assign to anyone who reports to you, directly or further down." : "Admin-Builders can assign to anyone in the organisation."}
+        </small>
       </div>
       <div className="field-grid">
         <label className="field">
@@ -248,7 +243,7 @@ function AssignForm({ sims, knownTrainees, onCreated }: { sims: SimSummary[]; kn
       {error && <div className="alert error">{error}</div>}
       {msg && <div className="alert info">{msg}</div>}
       <button className="btn primary" disabled={!ready || busy} onClick={submit}>
-        {busy ? "Assigning…" : `Assign${trainees.length > 1 ? ` to ${trainees.length} trainees` : ""}`}
+        {busy ? "Assigning…" : `Assign${chosen.length > 1 ? ` to ${chosen.length} people` : ""}`}
       </button>
     </section>
   );
