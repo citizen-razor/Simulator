@@ -16,8 +16,6 @@ Nothing right now.
 - ⬜ **Video narration**: transcribe recordings' audio so the AI hears the explanation
   (needs a speech-to-text service).
 - ⬜ **AI suggestions for tags and rubric criteria** when generating a simulation.
-- ⬜ **Open-world sessions saved as results**, so objectives completed while exploring show
-  up in Results and Progress (today the checklist is live only).
 - ⬜ **Scheme-level defaults for screen/state checks**: let a scheme carry default
   conditions, for schemes written for one specific simulation.
 - ⬜ **Assignment reminders**: email or in-app notices before a due date (needs accounts
@@ -64,6 +62,8 @@ Nothing right now.
 - ✅ Assignments: complete / pass / master with due dates and notes; "My training" for
   trainees; status from results; shown in the Player, summary and Progress. Decided: credit follows
   the work, so attempts made before assigning count too
+- ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
+  credit comes from Guided and Scenario runs
 
 ## Housekeeping (needs you, on GitHub)
 
