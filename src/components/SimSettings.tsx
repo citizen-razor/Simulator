@@ -49,7 +49,7 @@ export function SimSettings({ sim, taxonomy, schemes, personaLib, update }: {
       {!taxonomy ? (
         <p className="muted small">Loading…</p>
       ) : taxonomy.topics.length === 0 ? (
-        <p className="muted small">No topics or tags yet. An admin can add them in <a href="#/libraries/tags">Libraries</a>.</p>
+        <p className="muted small">No topics or tags yet. The Admin-Builder can add them in <a href="#/libraries/tags">Libraries</a>.</p>
       ) : (
         <div className="tag-picker">
           {taxonomy.topics.map((topic) => (
@@ -83,7 +83,7 @@ export function SimSettings({ sim, taxonomy, schemes, personaLib, update }: {
       {!personaLib ? (
         <p className="muted small">Loading…</p>
       ) : personaLib.personas.length === 0 ? (
-        <p className="muted small">No personas yet. An admin can create them in <a href="#/libraries/personas">Libraries → Personas</a>.</p>
+        <p className="muted small">No personas yet. The Admin-Builder can create them in <a href="#/libraries/personas">Libraries → Personas</a>.</p>
       ) : (
         <>
           <p className="muted small">

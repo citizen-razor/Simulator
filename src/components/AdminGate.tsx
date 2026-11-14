@@ -12,14 +12,15 @@ export function AdminBar({ what }: { what: string }) {
   if (!admin.pinRequired) {
     return (
       <div className="alert info small">
-        No admin PIN is set, so anyone using this app can edit {what}. To restrict editing, set <code>ADMIN_PIN</code> in <code>.env</code> and restart.
+        No Admin-Builder PIN is set, so anyone using this app can edit {what}. To restrict editing to the Admin-Builder, set{" "}
+        <code>ADMIN_PIN</code> in <code>.env</code> and restart.
       </div>
     );
   }
   if (admin.isAdmin) {
     return (
       <div className="alert info small admin-bar">
-        <span>🔓 Admin mode: you can edit {what}.</span>
+        <span>🔓 Admin-Builder: you can edit {what}.</span>
         <button className="btn sm ghost" onClick={admin.lock}>Lock</button>
       </div>
     );
@@ -45,8 +46,8 @@ export function AdminBar({ what }: { what: string }) {
         unlock();
       }}
     >
-      <span>🔒 View only. Enter the admin PIN to edit {what}.</span>
-      <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Admin PIN" aria-label="Admin PIN" autoComplete="off" />
+      <span>🔒 View only. Editing {what} is for the Admin-Builder: enter the PIN to unlock.</span>
+      <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Admin-Builder PIN" aria-label="Admin PIN" autoComplete="off" />
       <button className="btn sm" disabled={!pin || busy}>{busy ? "Checking…" : "Unlock"}</button>
       {error && <span className="text-error small">{error}</span>}
     </form>

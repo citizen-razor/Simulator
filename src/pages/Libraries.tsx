@@ -2,7 +2,7 @@
  * Admin-managed libraries that simulations draw on:
  *   #/libraries/tags     topics and the tags inside them
  *   #/libraries/grading  grading schemes (points rules, rubric, open-world objectives)
- * Everyone can view; editing needs admin mode (see AdminBar).
+ * Everyone can view; editing is for the Admin-Builder (see AdminBar).
  */
 import { useEffect, useState } from "react";
 import { newId } from "../../shared/engine";
@@ -416,7 +416,7 @@ function StoragePanel() {
     <>
       <AdminBar what="storage" />
       {ready && !isAdmin ? (
-        <p className="muted">Unlock admin mode to see storage.</p>
+        <p className="muted">Unlock as Admin-Builder to see storage.</p>
       ) : !usage ? (
         <p className="muted">{error || "Loading…"}</p>
       ) : (

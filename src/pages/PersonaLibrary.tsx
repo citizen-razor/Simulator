@@ -1,8 +1,7 @@
 /**
  * Libraries → Personas: persona templates and the personas built from them, plus AI
- * drafting. Builders create and edit personas freely (like simulations); templates, which
- * define every persona's structure, need admin mode. A persona is one record: editing it
- * changes it everywhere it's used.
+ * drafting. Everyone can view; creating and editing personas and templates is for the
+ * Admin-Builder. A persona is one record: editing it changes it everywhere it's used.
  */
 import { useEffect, useMemo, useState } from "react";
 import { newId } from "../../shared/engine";
@@ -79,7 +78,7 @@ export function PersonaLibraryPanel({ initialPersonaId }: { initialPersonaId?: s
 
   return (
     <>
-      <AdminBar what="persona templates" />
+      <AdminBar what="personas and persona templates" />
       <div className="alert warn small">
         🔒 Use invented details only. Don't enter real customers' names, account numbers or other personal information:
         simulations are exported and shared.
@@ -97,8 +96,8 @@ export function PersonaLibraryPanel({ initialPersonaId }: { initialPersonaId?: s
             </button>
           ))}
           {lib.personas.length === 0 && <p className="muted small">No personas yet.</p>}
-          <button className="link-btn add" onClick={newPersona}>+ New persona</button>
-          {aiAvailable && (
+          {isAdmin && <button className="link-btn add" onClick={newPersona}>+ New persona</button>}
+          {isAdmin && aiAvailable && (
             <button className={`link-btn add ${sel?.kind === "draft" ? "on" : ""}`} onClick={() => setSel({ kind: "draft" })}>✦ Draft personas with AI</button>
           )}
           <h4>Templates</h4>
@@ -117,7 +116,7 @@ export function PersonaLibraryPanel({ initialPersonaId }: { initialPersonaId?: s
               key={persona.id}
               persona={persona}
               lib={lib}
-              readOnly={false}
+              readOnly={!isAdmin}
               onSaved={(p) => load({ kind: "persona", id: p.id })}
               onDeleted={() => load(null)}
               onDuplicate={(p) => {

@@ -1,6 +1,6 @@
 /**
  * Trainers assign scenarios to trainees (#/assignments). Creating and removing needs
- * admin mode; everyone can view. Status comes from the trainees' attempts.
+ * the Admin-Builder; everyone can view. Status comes from the trainees' attempts.
  */
 import { useEffect, useMemo, useState } from "react";
 import { assignmentStatus, byUrgency, localToday, REQUIREMENT_TEXT, Requirements, type Assignment, type AssignmentState, type Requirement } from "../../shared/assignments";
@@ -132,7 +132,7 @@ export default function Assignments() {
           {rows.length === 0 && <p className="muted">Nothing matches these filters.</p>}
         </>
       )}
-      {assignments?.length === 0 && <div className="empty"><p>No assignments yet.{isAdmin ? "" : " An admin can create them."}</p></div>}
+      {assignments?.length === 0 && <div className="empty"><p>No assignments yet.{isAdmin ? "" : " The Admin-Builder can create them."}</p></div>}
     </div>
   );
 }

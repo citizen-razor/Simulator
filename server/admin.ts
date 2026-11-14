@@ -1,6 +1,8 @@
 /**
- * Admin mode: a PIN (ADMIN_PIN in .env) unlocks editing the topic/tag and grading
- * libraries and marking rubric criteria. The browser sends it in the X-Admin-Pin header.
+ * The Admin-Builder role, for now: a PIN (ADMIN_PIN in .env) unlocks everything that
+ * shapes training for everyone: tags, grading schemes and rubrics, personas and persona
+ * templates, assignments, trainer marking and storage clean-up. The browser sends it in
+ * the X-Admin-Pin header. When real accounts arrive, this becomes the Admin-Builder role.
  *
  * This is a light lock for a single machine until real accounts exist; it is not a
  * substitute for logins. With no ADMIN_PIN set, everyone is admin.

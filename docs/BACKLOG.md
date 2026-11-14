@@ -30,8 +30,11 @@ Nothing right now.
   wireframes, not in the pixels of an uploaded screenshot.
 - ⬜ **Re-grade past attempts** when a scheme changes (today each attempt keeps the rules
   it was graded with, which is usually what you want for fairness).
-- ⬜ **Hosting for other people**: user accounts and roles (admin / author / trainee),
-  a real database, HTTPS, limits on AI spending. Replaces the admin PIN.
+- ⬜ **Hosting for other people**: user accounts and roles, a real database, HTTPS, limits
+  on AI spending. Replaces the admin PIN. Decided: an **Admin-Builder** role owns persona,
+  persona-template, rubric/grading and tag editing, plus assignments, trainer marking and
+  storage clean-up (today: whoever has the PIN). Other roles still to define (e.g. builder,
+  trainee).
 - ⬜ **Verify AI features with a real API key**: generation quality, box fine-tuning
   accuracy, and whether the AI proposes sensible alternative paths.
 
@@ -57,7 +60,9 @@ Nothing right now.
   mastery marks), weighted rubric (automatic or trainer-marked criteria), rubric weight,
   open-world objectives; per-simulation scheme with scenario override and check targets;
   trainer marking on Results; pass/fail and mastery from the scheme
-- ✅ Admin mode via `ADMIN_PIN` (rate-limited; enforced by the server)
+- ✅ Admin mode via `ADMIN_PIN` (rate-limited; enforced by the server), standing in for the
+  Admin-Builder role: tags, grading/rubrics, personas and templates, assignments, marking,
+  storage
 - ✅ Automatic checks on GitHub: typecheck, tests and build on every push and pull request
 - ✅ Clean up unused images (Libraries → Storage; admin only; keeps anything under a day old)
 - ✅ Tags and grading schemes carried through export/import, matched by name; created on
@@ -74,8 +79,8 @@ Nothing right now.
   export/import, and deletion guards
 - ✅ Personas per scenario: assign any persona to a scenario (including scenario-only roles).
   Decided: a persona is one record like a real customer; edits always apply everywhere it's
-  used (no per-simulation or per-scenario detail overrides). Builders edit personas in place
-  from the simulation editor, with a list of everything a change affects; templates stay admin
+  used (no per-simulation or per-scenario detail overrides). The Admin-Builder edits
+  personas in place from the simulation editor, with a list of everything a change affects
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

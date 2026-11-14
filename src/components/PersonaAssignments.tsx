@@ -6,6 +6,7 @@
  *
  * A persona is one record, like a real customer. "✎ Edit persona" opens that record right
  * here; saving changes it everywhere it's used: every scenario, open world and guided run.
+ * Editing is for the Admin-Builder (others see it read-only, with the unlock bar).
  * Simulations and scenarios only choose WHICH persona plays a role, never its details.
  */
 import { createContext, useContext, useState } from "react";
@@ -20,6 +21,8 @@ import {
 } from "../../shared/personas";
 import type { PersonaLink, PersonaOverride, Scenario, Simulation } from "../../shared/schema";
 import { PersonaEditor } from "../pages/PersonaLibrary";
+import { useAdmin } from "../lib/admin";
+import { AdminBar } from "./AdminGate";
 
 /** Lets an embedded persona editor tell the page to reload the persona library after a save. */
 export const ReloadPersonasContext = createContext<() => void>(() => undefined);
@@ -38,18 +41,20 @@ const findTemplate = (lib: PersonaLibrary, p: Persona | undefined) => (p ? lib.t
 function PersonaCard({ persona, role, template, lib }: { persona: Persona; role: string; template: PersonaTemplate | null; lib: PersonaLibrary }) {
   const [editing, setEditing] = useState(false);
   const reload = useContext(ReloadPersonasContext);
+  const { isAdmin } = useAdmin();
   return (
     <div className="persona-preview small">
       {persona.summary && <div>{persona.summary}</div>}
       <div className="row tight-top">
         <button className={`btn sm ${editing ? "" : "ghost"}`} onClick={() => setEditing(!editing)} aria-expanded={editing}>
-          {editing ? "Close editor" : "✎ Edit persona"}
+          {editing ? "Close" : isAdmin ? "✎ Edit persona" : "View persona"}
         </button>
         <a href={libraryLink(persona.id)} target="_blank" rel="noreferrer" className="muted">Open in library ↗</a>
       </div>
       {editing && (
         <div className="embedded-persona">
-          <PersonaEditor key={persona.id} persona={persona} lib={lib} readOnly={false} onSaved={() => reload()} />
+          {!isAdmin && <AdminBar what="personas" />}
+          <PersonaEditor key={persona.id} persona={persona} lib={lib} readOnly={!isAdmin} onSaved={() => reload()} />
         </div>
       )}
       <details className="var-help">

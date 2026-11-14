@@ -149,8 +149,8 @@ describe("tags and grading schemes travel with exports", () => {
     expect(r.simulation.tagIds).toEqual([]);
     expect(r.simulation.grading).toEqual({ schemeId: null, bindings: [] });
     expect(r.created).toEqual({ taxonomy: null, schemes: [], personas: [], personaTemplates: [] });
-    expect(r.warnings.join(" ")).toMatch(/1 tag .* removed\. An admin can import/);
-    expect(r.warnings.join(" ")).toMatch(/"Support assessment" isn't in this library, so Standard grading is used instead\. An admin/);
+    expect(r.warnings.join(" ")).toMatch(/1 tag .* removed\. The Admin-Builder can import/);
+    expect(r.warnings.join(" ")).toMatch(/"Support assessment" isn't in this library, so Standard grading is used instead\. The Admin-Builder/);
   });
 
   it("creates what's missing for admins", async () => {
@@ -191,7 +191,7 @@ describe("personas travel with exports", () => {
 
     const user = await importBundle(await exported(), memoryStore().save, "x", { ...empty, canCreate: false, makeId });
     expect(user.simulation.personas).toEqual([]);
-    expect(user.warnings.join(" ")).toMatch(/"Maya Okonkwo" isn't in this library, so it was unlinked\. An admin/);
+    expect(user.warnings.join(" ")).toMatch(/"Maya Okonkwo" isn't in this library, so it was unlinked\. The Admin-Builder/);
 
     const admin = await importBundle(await exported(), memoryStore().save, "x", { ...empty, canCreate: true, makeId });
     expect(admin.created.personaTemplates.map((t) => t.name)).toEqual(["Telecom customer"]);

@@ -138,10 +138,10 @@ admin mode (below); everyone can view them.
     or in a scenario's **Personas in this scenario** section. A scenario can keep the
     simulation's persona, use a different one, have none, or add roles only it has.
   - **A persona is one record, like a real customer.** Editing it changes it everywhere it's
-    used: every scenario, open-world and guided run. Builders can edit personas from
-    Libraries, or with **✎ Edit persona** right inside the simulation editor; the editor
-    lists every simulation and scenario a change will affect. No admin mode is needed for
-    personas. Persona *templates* (the fields and tables every persona has) need admin.
+    used: every scenario, open-world and guided run. The Admin-Builder edits personas in
+    Libraries, or with **✎ Edit persona** right inside the simulation editor, which lists
+    every simulation and scenario a change will affect. Others can view personas and assign
+    them to simulations and scenarios.
   - Their details then appear on screens as
     `{{customer.name}}`, `{{customer.balance}}` or `{{customer.bills.1.amount}}`. A
     **table** element shows a whole record table, e.g. `customer.bills`.
@@ -166,8 +166,10 @@ admin mode (below); everyone can view them.
 deletes the ones no simulation uses any more. Images less than a day old are always kept,
 in case they belong to an editor that hasn't been saved yet.
 
-**Admin mode:** set `ADMIN_PIN` in `.env` and restart. Editing the libraries and marking
-rubric criteria then needs the PIN (entered on the page; remembered until the browser tab
+**The Admin-Builder role:** set `ADMIN_PIN` in `.env` and restart. Everything that shapes
+training for everyone then needs the PIN: tags, grading schemes and rubrics, personas and
+persona templates, assignments, trainer marking, and storage clean-up. Building simulations
+doesn't. The PIN (entered on the page; remembered until the browser tab
 closes). Five wrong PINs within a minute lock it for a minute. With no PIN set, anyone can
 edit. This is a light lock for one machine, not a replacement for real logins.
 

@@ -179,7 +179,7 @@ function RubricDetail({ attempt: a, onUpdated }: { attempt: Attempt; onUpdated: 
           ))}
         </ul>
       )}
-      {hasManual && !isAdmin && <p className="muted small">Unlock admin mode (top of this page) to mark trainer-marked criteria.</p>}
+      {hasManual && !isAdmin && <p className="muted small">Unlock as Admin-Builder (top of this page) to mark trainer-marked criteria.</p>}
       {error && <p className="text-error small">{error}</p>}
     </div>
   );

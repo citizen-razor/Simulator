@@ -232,7 +232,7 @@ function mapTags(sim: Simulation, file: Bundle["library"], opts: ImportOptions, 
   if (dropped) {
     warnings.push(
       `${plural(dropped, "tag")} from the file ${dropped === 1 ? "isn't" : "aren't"} in this library and ${dropped === 1 ? "was" : "were"} removed` +
-        (opts.canCreate ? "." : ". An admin can import the file to add them."),
+        (opts.canCreate ? "." : ". The Admin-Builder can import the file to add them."),
     );
   }
 }
@@ -277,7 +277,7 @@ function mapSchemes(sim: Simulation, file: Bundle["library"], opts: ImportOption
       const name = fromFile ? `"${fromFile.name}"` : "used by the file";
       warnings.push(
         `The grading scheme ${name} isn't in this library, so Standard grading is used instead` +
-          (opts.canCreate ? "." : ". An admin can import the file to add it."),
+          (opts.canCreate ? "." : ". The Admin-Builder can import the file to add it."),
       );
     }
     resolved.set(schemeId, result);
@@ -333,7 +333,7 @@ function mapPersonas(sim: Simulation, file: Bundle["library"], opts: ImportOptio
     if (!result) {
       warnings.push(
         `The persona ${fromFile ? `"${fromFile.name}"` : "used by the file"} isn't in this library, so it was unlinked` +
-          (opts.canCreate ? "." : ". An admin can import the file to add it."),
+          (opts.canCreate ? "." : ". The Admin-Builder can import the file to add it."),
       );
     }
     resolved.set(personaId, result);
