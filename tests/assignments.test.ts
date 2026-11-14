@@ -62,8 +62,11 @@ describe("assignment status", () => {
     expect(s).toMatchObject({ state: "done", doneAt: "2026-11-12T00:00:00Z", attempts: 2, bestScore: 90 });
   });
 
-  it("ignores attempts from before it was assigned", () => {
-    expect(assignmentStatus(asg(), [attempt({ finishedAt: "2026-11-01T00:00:00Z" })], "2026-11-14").state).toBe("open");
+  it("never counts attempts from before it was assigned, even a mastery", () => {
+    const earlier = attempt({ finishedAt: "2026-11-01T00:00:00Z", score: 100 });
+    for (const requirement of ["complete", "pass", "master"] as const) {
+      expect(assignmentStatus(asg({ requirement }), [earlier], "2026-11-14")).toMatchObject({ state: "open", attempts: 0, bestScore: null, earlierAttempts: 1 });
+    }
   });
 
   it("tracks due dates and pending marking", () => {

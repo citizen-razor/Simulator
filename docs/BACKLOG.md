@@ -22,8 +22,6 @@ Nothing right now.
   conditions, for schemes written for one specific simulation.
 - ⬜ **Assignment reminders**: email or in-app notices before a due date (needs accounts
   or an email service).
-- ⬜ **Option to count earlier attempts toward an assignment** (today only attempts after
-  it was assigned count).
 - ⬜ **Random values inside screenshots**: today random values appear in text elements and
   wireframes, not in the pixels of an uploaded screenshot.
 - ⬜ **Re-grade past attempts** when a scheme changes (today each attempt keeps the rules
@@ -64,7 +62,8 @@ Nothing right now.
   linked lists); `{{variables}}` in instructions, hints, goals and expected answers;
   per-scenario opt-out; values saved with attempts
 - ✅ Assignments: complete / pass / master with due dates and notes; "My training" for
-  trainees; status from results; shown in the Player, summary and Progress
+  trainees; status from results; shown in the Player, summary and Progress. Decided: only
+  attempts made after assigning count (earlier results, even mastery, never do)
 
 ## Housekeeping (needs you, on GitHub)
 

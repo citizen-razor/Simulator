@@ -68,7 +68,10 @@ export default function Assignments() {
       <div className="page-head">
         <div>
           <h1>Assignments</h1>
-          <p className="muted">Ask trainees to complete, pass or master a scenario by a date. Status updates from their results.</p>
+          <p className="muted">
+            Ask trainees to complete, pass or master a scenario by a date. Status updates from their results; only attempts made after
+            the assignment is given count.
+          </p>
         </div>
       </div>
       <AdminBar what="assignments" />
@@ -112,7 +115,13 @@ export default function Assignments() {
                     <AssignmentBadge status={status} />
                     {status.doneAt && <div className="muted small">{new Date(status.doneAt).toLocaleDateString()}</div>}
                   </td>
-                  <td>{status.attempts}{status.bestScore !== null && <div className="muted small">best {status.bestScore}</div>}</td>
+                  <td>
+                    {status.attempts}
+                    {status.bestScore !== null && <div className="muted small">best {status.bestScore}</div>}
+                    {status.earlierAttempts > 0 && (
+                      <div className="muted small" title="Attempts from before this was assigned don't count toward it">+{status.earlierAttempts} earlier, not counted</div>
+                    )}
+                  </td>
                   {isAdmin && <td><button className="btn sm ghost danger" onClick={() => remove(a)} aria-label="Remove assignment">✕</button></td>}
                 </tr>
               ))}

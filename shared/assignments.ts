@@ -6,7 +6,8 @@
  *   pass      a Scenario-mode attempt that passes its grading scheme's pass mark
  *   master    a solo Scenario-mode attempt (no guided help) at or above the mastery mark
  *
- * Status is worked out from the trainee's attempts made AFTER the assignment was given:
+ * Status is worked out from the trainee's attempts made AFTER the assignment was given.
+ * Earlier results never count, even a mastery: an assignment means "take it now".
  *   done      an attempt meets the requirement
  *   awaiting  an attempt might, once a trainer marks its rubric
  *   overdue   past the due date and not done
@@ -66,15 +67,16 @@ export interface AssignmentStatus {
   bestScore: number | null;
   /** Days until due (negative = overdue), or null with no due date. */
   daysLeft: number | null;
+  /** Attempts at this scenario from BEFORE it was assigned. They don't count; shown so trainees know why. */
+  earlierAttempts: number;
 }
 
 const dayNumber = (ymd: string) => Math.round(Date.parse(`${ymd}T00:00:00Z`) / 86_400_000);
 
 /** `today` is the viewer's local date as YYYY-MM-DD. */
 export function assignmentStatus(asg: Assignment, attempts: Attempt[], today: string): AssignmentStatus {
-  const relevant = attempts
-    .filter((a) => sameName(a.trainee, asg.trainee) && a.simulationId === asg.simulationId && a.scenarioId === asg.scenarioId && a.finishedAt >= asg.createdAt)
-    .sort((a, b) => a.finishedAt.localeCompare(b.finishedAt));
+  const theirs = attempts.filter((a) => sameName(a.trainee, asg.trainee) && a.simulationId === asg.simulationId && a.scenarioId === asg.scenarioId);
+  const relevant = theirs.filter((a) => a.finishedAt >= asg.createdAt).sort((a, b) => a.finishedAt.localeCompare(b.finishedAt));
   const done = relevant.find((a) => meetsRequirement(a, asg.requirement) === true);
   const awaiting = relevant.some((a) => meetsRequirement(a, asg.requirement) === null);
   const daysLeft = asg.dueDate ? dayNumber(asg.dueDate) - dayNumber(today) : null;
@@ -93,6 +95,7 @@ export function assignmentStatus(asg: Assignment, attempts: Attempt[], today: st
     attempts: relevant.length,
     bestScore: relevant.length ? Math.max(...relevant.map((a) => a.score)) : null,
     daysLeft,
+    earlierAttempts: theirs.length - relevant.length,
   };
 }
 

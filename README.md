@@ -176,7 +176,8 @@ what's required, and the end-of-run summary says whether the assignment is now c
 
 Status is worked out from results: **done**, **awaiting marking**, **overdue**, **due
 soon** (within 3 days), or **to do**. Only attempts made *after* the assignment was given
-count. Names match regardless of capitals and spaces. Assignments also appear on each
+count: earlier results, even a mastery, never do, because an assignment means "take it now".
+If a trainee has earlier attempts, My training tells them they need to take it again. Names match regardless of capitals and spaces. Assignments also appear on each
 trainee's Progress page.
 
 ### Trainee progress

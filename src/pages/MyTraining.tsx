@@ -89,6 +89,9 @@ export default function MyTraining() {
                   <p className="muted small">{a.simulationTitle} · {REQUIREMENT_TEXT[a.requirement]}</p>
                   {a.note && <p className="small">“{a.note}”</p>}
                   {status.attempts > 0 && <p className="muted small">{status.attempts} attempt{status.attempts === 1 ? "" : "s"} so far · best {status.bestScore}</p>}
+                  {status.earlierAttempts > 0 && status.attempts === 0 && (
+                    <p className="muted small">You've done this scenario before, but only attempts made after it was assigned count, so take it again.</p>
+                  )}
                 </div>
                 <div className="assignment-actions">
                   <a className="btn primary" href={`#/play/${a.simulationId}?mode=scenario&scenario=${encodeURIComponent(a.scenarioId)}&assignment=${a.id}`}>Start</a>
