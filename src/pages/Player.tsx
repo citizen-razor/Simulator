@@ -124,6 +124,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
         stepsTotal: result.stepsTotal,
         pathName: sc.alternatePaths.length ? result.pathName : "",
         mistakes: s.mistakes,
+        troubleSteps: s.troubleSteps,
         finishedAt: new Date().toISOString(),
       })
       .catch((e) => pushToasts([{ tone: "error", text: `Couldn't save result: ${e.message}` }]));

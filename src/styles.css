@@ -302,3 +302,31 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .also-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 4px; }
 .also-row .chip { display: inline-flex; align-items: center; gap: 2px; }
 .also-add { font-size: 12px; padding: 2px 6px; color: var(--muted); max-width: 160px; }
+
+/* ---------- progress */
+.trainee-name { margin-top: 12px; }
+.section { font-size: 16px; margin: 28px 0 10px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 16px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.tile b { font-size: 28px; line-height: 1.2; }
+.tile b small { font-size: 16px; color: var(--muted); font-weight: 500; }
+.status { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+.status.good { background: var(--success-soft); color: var(--success); }
+.status.ok { background: var(--accent-soft); color: var(--accent); }
+.status.neutral { background: var(--surface-2); color: var(--muted); }
+.trend-up { color: var(--success); font-weight: 600; }
+.trend-down { color: var(--error); font-weight: 600; }
+.progress-table td { vertical-align: middle; }
+.trend { position: relative; display: inline-block; line-height: 0; }
+.trend svg { overflow: visible; }
+.trend-pass { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.6; }
+.trend-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.trend-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.trend-dot.hollow { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+.trend-tip { position: absolute; bottom: calc(100% + 6px); transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); border-radius: 6px; padding: 6px 8px; font-size: 12px; line-height: 1.35; white-space: nowrap; z-index: 5; pointer-events: none; }
+.legend-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); margin: 0 2px 0 6px; }
+.legend-dot.hollow { background: var(--surface); border: 2px solid var(--accent); }
+.trouble { padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.trouble li { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; }
+.trouble-count { float: right; font-size: 12px; color: var(--warn); font-weight: 600; }

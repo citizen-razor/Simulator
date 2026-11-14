@@ -15,7 +15,13 @@ export default function Results({ simulationId }: { simulationId?: string }) {
   }, [simulationId]);
 
   const trainees = useMemo(() => [...new Set((attempts ?? []).map((a) => a.trainee))].sort(), [attempts]);
-  const shown = useMemo(() => (attempts ?? []).filter((a) => who === "__all" || a.trainee === who), [attempts, who]);
+  const shown = useMemo(
+    () =>
+      (attempts ?? [])
+        .filter((a) => who === "__all" || a.trainee === who)
+        .sort((a, b) => b.finishedAt.localeCompare(a.finishedAt)),
+    [attempts, who],
+  );
 
   const byScenario = useMemo(() => {
     const groups = new Map<string, { title: string; sim: string; list: Attempt[] }>();
@@ -81,7 +87,13 @@ export default function Results({ simulationId }: { simulationId?: string }) {
               <Fragment key={a.id}>
                 <tr className="clickable" onClick={() => setOpen(open === a.id ? null : a.id)}>
                   <td>{new Date(a.finishedAt).toLocaleString()}</td>
-                  <td>{a.trainee || <span className="muted">–</span>}</td>
+                  <td>
+                    {a.trainee ? (
+                      <a href={`#/progress/${encodeURIComponent(a.trainee)}`} onClick={(e) => e.stopPropagation()}>{a.trainee}</a>
+                    ) : (
+                      <span className="muted">–</span>
+                    )}
+                  </td>
                   <td>{a.simulationTitle}</td>
                   <td>{a.scenarioTitle}</td>
                   <td>{a.mode}{a.assisted && a.mode === "scenario" ? " (assisted)" : ""}</td>

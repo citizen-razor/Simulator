@@ -193,6 +193,8 @@ export const AttemptSchema = z.object({
   /** Which path the trainee followed ("Main path" or an alternative's name). */
   pathName: z.string().default(""),
   mistakes: z.array(z.string()).default([]),
+  /** Step instruction for each error or hint, used to find where a trainee struggles. */
+  troubleSteps: z.array(z.string()).default([]),
   finishedAt: z.string(),
 });
 export type Attempt = z.infer<typeof AttemptSchema>;

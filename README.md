@@ -108,8 +108,22 @@ You can also click **Start blank** or **Build manually from N images** to author
 Scenario attempts start at 100: **−10 per error**, **−5 per hint**. An incomplete run scores
 by the share of steps completed. Before a scored run, the Player asks for the trainee's name
 (remembered on that device; click the name in the top bar to change it). Results (trainee,
-score, mistakes, time, assisted or not) are saved and shown on the **Results** page, where
-you can filter by trainee.
+score, mistakes, time, assisted or not, path taken) are saved and shown on the **Results**
+page, where you can filter by trainee.
+
+### Trainee progress
+
+The **Progress** page lists every trainee. Click one to see:
+- each scenario's status:
+  - **✓ Mastered:** completed in Scenario mode without guided help, scoring 80 or more
+  - **Passed:** completed on their own, but below 80
+  - **With help:** completed only with guided help so far
+  - **Not yet:** attempted but not completed
+- a small chart of their scores over time, with the change from first to latest solo run
+- **where they struggle:** the steps where they most often made errors or asked for hints
+- their recent attempts
+
+The mastery score of 80 is set in one place, `MASTERY_SCORE` in `shared/progress.ts`.
 
 ---
 
@@ -163,6 +177,7 @@ src/lib/media.ts      in-browser image resizing and video key-frame extraction
 src/lib/align.ts      draws the grid + numbered boxes for box fine-tuning
 shared/layout.ts      box clamping, fine-tune merging, and snapping
 shared/refactor.ts    safe renames, duplicating, reordering
+shared/progress.ts    per-trainee progress: mastery, trends, trouble spots
 samples/              the built-in Helpdesk sample
 tests/                engine and AI-conversion tests
 ```
@@ -208,4 +223,4 @@ actual usage in the Claude Console. Playing and editing simulations makes no AI 
 - Within a path, clicks must follow the step order (field entries can be done in any order).
   Use alternative paths for other valid orders.
 - Single user, local files. Moving to a database and accounts is the main step before hosting.
-- Ideas: timed challenges and pass marks, trainer dashboards per learner.
+- Ideas: timed challenges and pass marks per scenario.

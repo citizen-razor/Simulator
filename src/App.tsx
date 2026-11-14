@@ -3,6 +3,7 @@ import Create from "./pages/Create";
 import Editor from "./pages/Editor";
 import Library from "./pages/Library";
 import Player from "./pages/Player";
+import Progress from "./pages/Progress";
 import Results from "./pages/Results";
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
         <nav>
           <a href="#/" className={!page ? "active" : ""}>Library</a>
           <a href="#/new" className={page === "new" ? "active" : ""}>Create</a>
+          <a href="#/progress" className={page === "progress" ? "active" : ""}>Progress</a>
           <a href="#/results" className={page === "results" ? "active" : ""}>Results</a>
         </nav>
       </header>
@@ -28,6 +30,8 @@ export default function App() {
           <Editor key={id} id={id} />
         ) : page === "play" && id ? (
           <Player key={`${id}?${route.query.toString()}`} id={id} query={route.query} />
+        ) : page === "progress" ? (
+          <Progress key={id ?? ""} name={id} />
         ) : page === "results" ? (
           <Results simulationId={id} />
         ) : (

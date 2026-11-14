@@ -64,6 +64,8 @@ export interface SessionState {
   history: string[];
   /** Field element ids the trainee has edited (lets out-of-order field steps auto-complete). */
   touched: string[];
+  /** Instruction of the step the trainee was on each time they made an error or took a hint. */
+  troubleSteps: string[];
 }
 
 export type InteractionEvent =
@@ -178,6 +180,7 @@ export function createSession(sim: Simulation, scenarioId: string | null, now = 
     finishedAt: null,
     history: [start],
     touched: [],
+    troubleSteps: [],
   };
 }
 
@@ -194,7 +197,7 @@ export function takeHint(sim: Simulation, state: SessionState): { state: Session
   const where =
     target && target.screen.id !== state.screenId ? ` (on the "${target.screen.name}" screen)` : "";
   const hint = (step.hint || step.instruction) + where;
-  return { state: { ...state, hintsUsed: state.hintsUsed + 1 }, hint };
+  return { state: { ...state, hintsUsed: state.hintsUsed + 1, troubleSteps: [...state.troubleSteps, step.instruction] }, hint };
 }
 
 function runActions(actions: Action[], state: SessionState, sim: Simulation, feedback: Feedback[]) {
@@ -311,7 +314,13 @@ export function interact(
         ? `That value isn't quite right. ${hintStep!.hint ?? hintStep!.instruction}`
         : `Not yet. ${step.instruction}`;
       const mistake = isTarget ? `Wrong value in ${describe(el)}` : `Clicked ${describe(el)} instead of the next step`;
-      const blockedState = { ...prev, assisted: true, errors: prev.errors + 1, mistakes: [...prev.mistakes, mistake] };
+      const blockedState = {
+        ...prev,
+        assisted: true,
+        errors: prev.errors + 1,
+        mistakes: [...prev.mistakes, mistake],
+        troubleSteps: [...prev.troubleSteps, (isTarget ? hintStep! : step).instruction],
+      };
       if (fieldCommit) {
         // Keep what they typed so the field doesn't reset, but don't advance.
         blockedState.vars = { ...prev.vars, [fieldVar(el)]: ev.value };
@@ -320,6 +329,7 @@ export function interact(
       return { state: blockedState, feedback: [{ tone: "error", text }], blocked: true, completedStep: null };
     } else {
       state.errors++;
+      state.troubleSteps = [...state.troubleSteps, (isTarget ? hintStep! : step).instruction];
       state.mistakes = [
         ...state.mistakes,
         isTarget ? `Wrong value in ${describe(el)} (step: ${hintStep!.instruction})` : `Used ${describe(el)} when the step was: ${step.instruction}`,
