@@ -107,10 +107,21 @@ export const StepSchema = z.object({
   hint: z.string().optional(),
   /** The element the trainee must use for this step. */
   elementId: z.string(),
+  /** Other elements that also count for this step (e.g. a toolbar button and a menu item that do the same thing). */
+  alsoElementIds: z.array(z.string()).optional(),
   /** For fields: what the entered value must be. "any" = anything non-empty. */
   expect: z.enum(ExpectOps).default("any"),
   value: z.string().optional(),
 });
+
+/** Another valid way to complete a scenario: its own ordered list of steps. */
+export const PathSchema = z.object({
+  id,
+  name: z.string(),
+  steps: z.array(StepSchema).default([]),
+});
+
+export const MAIN_PATH_ID = "main";
 
 export const ScenarioSchema = z.object({
   id,
@@ -120,7 +131,10 @@ export const ScenarioSchema = z.object({
   startScreenId: z.string().optional(),
   /** Overrides for variable initial values in this scenario. */
   initialVars: z.array(z.object({ name: z.string(), value: z.string() })).default([]),
+  /** The main (recommended) path. Guided mode coaches this one unless the trainee takes another valid path. */
   steps: z.array(StepSchema).default([]),
+  /** Other ways to complete the scenario. Completing ANY path (plus successCriteria) completes the scenario. */
+  alternatePaths: z.array(PathSchema).default([]),
   /** Optional extra checks on state required to finish (e.g. status = "Resolved"). */
   successCriteria: z.array(ConditionSchema).default([]),
 });
@@ -146,6 +160,15 @@ export type Screen = z.infer<typeof ScreenSchema>;
 export type Variable = z.infer<typeof VariableSchema>;
 export type Step = z.infer<typeof StepSchema>;
 export type Scenario = z.infer<typeof ScenarioSchema>;
+export type Path = z.infer<typeof PathSchema>;
+
+/** All the scenario's paths, main path first. */
+export function scenarioPaths(sc: Scenario): Path[] {
+  return [{ id: MAIN_PATH_ID, name: "Main path", steps: sc.steps }, ...sc.alternatePaths];
+}
+
+/** Elements that count for a step. */
+export const stepTargets = (st: Step): string[] => [st.elementId, ...(st.alsoElementIds ?? [])];
 export type Simulation = z.infer<typeof SimulationSchema>;
 
 /** A finished Scenario/Guided run, saved for the Results page. */
@@ -167,6 +190,8 @@ export const AttemptSchema = z.object({
   durationSec: z.number(),
   stepsCompleted: z.number(),
   stepsTotal: z.number(),
+  /** Which path the trainee followed ("Main path" or an alternative's name). */
+  pathName: z.string().default(""),
   mistakes: z.array(z.string()).default([]),
   finishedAt: z.string(),
 });

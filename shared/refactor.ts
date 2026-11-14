@@ -3,7 +3,8 @@
  * renaming ids, duplicating elements and screens, reordering screens.
  *
  * Everything that refers to something else by name:
- *   element id   ← scenario steps (elementId); a field's variable when it has no bindVar
+ *   element id   ← scenario steps on every path (elementId, alsoElementIds);
+ *                  a field's variable when it has no bindVar
  *   screen id    ← startScreenId, "navigate" actions, scenario startScreenId
  *   variable     ← declarations, bindVar, every condition, set/toggle actions,
  *                  scenario initialVars, and {{name}} templates in labels and values
@@ -11,7 +12,7 @@
  * All functions mutate the simulation passed in (the editor passes a fresh clone)
  * and throw an Error with a readable message when the change isn't allowed.
  */
-import { FIELD_KINDS, ID_PATTERN, type Condition, type Screen, type SimElement, type Simulation } from "./schema";
+import { FIELD_KINDS, ID_PATTERN, scenarioPaths, type Condition, type Screen, type SimElement, type Simulation, type Step } from "./schema";
 
 const randomSuffix = () => Math.random().toString(36).slice(2, 6);
 
@@ -39,6 +40,8 @@ function checkNewId(sim: Simulation, next: string) {
 }
 
 const isField = (e: SimElement) => FIELD_KINDS.includes(e.kind);
+/** Every step of every path of every scenario. */
+const allSteps = (sim: Simulation): Step[] => sim.scenarios.flatMap((sc) => scenarioPaths(sc).flatMap((p) => p.steps));
 const allElements = (sim: Simulation) => sim.screens.flatMap((s) => s.elements);
 
 function forEachCondition(sim: Simulation, fn: (c: Condition) => void) {
@@ -59,7 +62,10 @@ export function renameElement(sim: Simulation, oldId: string, newId: string) {
   // A field without bindVar stores its value under its id; pin the variable name so state survives.
   if (isField(el) && !el.bindVar) el.bindVar = oldId;
   el.id = newId;
-  for (const sc of sim.scenarios) for (const st of sc.steps) if (st.elementId === oldId) st.elementId = newId;
+  for (const st of allSteps(sim)) {
+    if (st.elementId === oldId) st.elementId = newId;
+    if (st.alsoElementIds) st.alsoElementIds = st.alsoElementIds.map((id) => (id === oldId ? newId : id));
+  }
 }
 
 export function renameScreen(sim: Simulation, oldId: string, newId: string) {
@@ -100,10 +106,8 @@ export function renameVariable(sim: Simulation, oldName: string, newName: string
     if (c.var === oldName) c.var = newName;
     c.value = retemplate(c.value);
   });
-  for (const sc of sim.scenarios) {
-    for (const iv of sc.initialVars) if (iv.name === oldName) iv.name = newName;
-    for (const st of sc.steps) st.value = retemplate(st.value);
-  }
+  for (const sc of sim.scenarios) for (const iv of sc.initialVars) if (iv.name === oldName) iv.name = newName;
+  for (const st of allSteps(sim)) st.value = retemplate(st.value);
 }
 
 // ------------------------------------------------------------------ duplicate

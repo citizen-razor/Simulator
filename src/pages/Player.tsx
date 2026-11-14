@@ -6,6 +6,7 @@ import {
   getScenario,
   getScreen,
   interact,
+  leadingPath,
   newId,
   scoreSession,
   switchMode,
@@ -15,7 +16,7 @@ import {
   type Mode,
   type SessionState,
 } from "../../shared/engine";
-import type { Simulation, SimElement, Step } from "../../shared/schema";
+import { MAIN_PATH_ID, scenarioPaths, type Simulation, type SimElement, type Step } from "../../shared/schema";
 import { api } from "../api";
 import { PlayScreen } from "../components/ScreenView";
 import { navigate } from "../router";
@@ -47,6 +48,7 @@ function recordedStep(el: SimElement, value?: string): Step {
 
 export default function Player({ id, query }: { id: string; query: URLSearchParams }) {
   const recordInto = query.get("record");
+  const recordPath = query.get("path") || MAIN_PATH_ID;
   const [sim, setSim] = useState<Simulation | null>(null);
   const [error, setError] = useState("");
   const [mode, setMode] = useState<Mode>(recordInto ? "open" : ((query.get("mode") as Mode) || "open"));
@@ -120,6 +122,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
         durationSec: result.durationSec,
         stepsCompleted: result.stepsCompleted,
         stepsTotal: result.stepsTotal,
+        pathName: sc.alternatePaths.length ? result.pathName : "",
         mistakes: s.mistakes,
         finishedAt: new Date().toISOString(),
       })
@@ -171,9 +174,10 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
     const fresh = await api.get(sim.id);
     const target = getScenario(fresh, recordInto);
     if (!target) return;
-    target.steps.push(...recording);
+    const path = target.alternatePaths.find((p) => p.id === recordPath);
+    (path ? path.steps : target.steps).push(...recording);
     await api.save(fresh);
-    navigate(`/edit/${sim.id}?scenario=${target.id}`);
+    navigate(`/edit/${sim.id}?scenario=${target.id}${path ? `&path=${path.id}` : ""}`);
   };
 
   const elapsed = Math.round((Date.now() - session.startedAt) / 1000);
@@ -278,7 +282,10 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
         <aside className="side">
           {recordInto ? (
             <RecordingPanel
-              scenarioTitle={getScenario(sim, recordInto)?.title ?? recordInto}
+              scenarioTitle={
+                (getScenario(sim, recordInto)?.title ?? recordInto) +
+                (recordPath !== MAIN_PATH_ID ? ` (${getScenario(sim, recordInto)?.alternatePaths.find((p) => p.id === recordPath)?.name ?? recordPath})` : "")
+              }
               steps={recording}
               onRemove={(i) => setRecording((r) => r.filter((_, j) => j !== i))}
               onSave={saveRecording}
@@ -298,8 +305,13 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
 
               {mode === "guided" && scenario && (
                 <section className="panel">
+                  {scenario.alternatePaths.length > 0 && (
+                    <p className="muted small path-note">
+                      Following: <b>{leadingPath(sim, session)!.name}</b>. This task has {scenarioPaths(scenario).length} valid ways; any of them counts.
+                    </p>
+                  )}
                   <ol className="steps">
-                    {scenario.steps.map((st, i) => (
+                    {leadingPath(sim, session)!.steps.map((st, i) => (
                       <li key={st.id} className={i < session.stepIndex ? "done" : i === session.stepIndex ? "current" : ""}>
                         {st.instruction}
                         {i === session.stepIndex && st.hint && <div className="hint">💡 {st.hint}</div>}
@@ -371,6 +383,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
               {score.stepsCompleted} of {score.stepsTotal} steps · {session.errors} error{session.errors === 1 ? "" : "s"} · {session.hintsUsed} hint
               {session.hintsUsed === 1 ? "" : "s"} · {formatTime(summary.durationSec)}
               {(session.assisted || mode === "guided") && " · assisted"}
+              {scenario.alternatePaths.length > 0 && ` · path: ${score.pathName}`}
             </p>
             {session.mistakes.length > 0 && (
               <div className="panel">

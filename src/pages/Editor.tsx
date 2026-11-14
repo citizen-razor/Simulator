@@ -364,7 +364,9 @@ export default function Editor({ id }: { id: string }) {
               update((d) => { d.scenarios = d.scenarios.filter((s) => s.id !== sc.id); });
               setSel({ kind: "screen" });
             }}
-            onRecord={() => goPlay(`/play/${sim.id}?record=${sc.id}`)}
+            key={sc.id}
+            initialPathId={new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("path") ?? undefined}
+            onRecord={(pathId) => goPlay(`/play/${sim.id}?record=${sc.id}&path=${pathId}`)}
             onPlay={(mode) => goPlay(`/play/${sim.id}?mode=${mode}&scenario=${sc.id}`)}
           />
         );
@@ -503,7 +505,7 @@ export default function Editor({ id }: { id: string }) {
             onClick={() => {
               const scId = newId("scenario");
               update((d) => {
-                d.scenarios.push({ id: scId, title: "New scenario", goal: "", initialVars: [], steps: [], successCriteria: [] });
+                d.scenarios.push({ id: scId, title: "New scenario", goal: "", initialVars: [], steps: [], alternatePaths: [], successCriteria: [] });
               });
               setSel({ kind: "scenario", id: scId });
             }}

@@ -85,6 +85,11 @@ You can also click **Start blank** or **Build manually from N images** to author
 - **Visible only when…** shows or hides a control based on state, e.g. an error banner.
 - **Scenarios** list the steps a trainee must do in order. Use **● Record steps by doing**
   to perform the task yourself; each click or entry becomes a step.
+- **More than one right way:** if a task can be done differently (say, a quick action
+  instead of the full form), add an **alternative path**. It starts as a copy of the main
+  path, and you change the steps that differ. Completing *any* path counts. For a single step
+  that two controls can do (a toolbar button and a menu item), use **+ also accept…** on
+  that step instead. The sample's "Resolve the printer ticket" scenario has two paths.
 - **✦ Ask AI to change it**: e.g. "add a scenario where the customer has no order number".
   You review the result before saving, and **Undo** (Ctrl+Z) reverts it.
 - **✦ Align boxes to screenshot** (above the canvas) re-runs the box fine-tuning on the
@@ -130,7 +135,8 @@ scenarios → steps. The editor edits it, the AI produces it, and the player run
 understand the app, start with that file.
 
 **The engine** ([`shared/engine.ts`](shared/engine.ts)) is a set of small, pure functions
-with no UI. `interact(simulation, state, mode, event)` takes one click or field entry and
+with no UI. A scenario's paths are all tracked at once, so the trainee's actions are
+correct if they follow any of them. `interact(simulation, state, mode, event)` takes one click or field entry and
 returns the new state plus feedback. Modes only change how an interaction is *judged*
 (blocked, counted as an error, or free). They don't own separate state, which is why
 switching modes is seamless. The engine is fully covered by tests in `tests/`.
@@ -199,7 +205,7 @@ actual usage in the Claude Console. Playing and editing simulations makes no AI 
 - Box fine-tuning greatly reduces manual dragging, but very small or crowded controls may
   still need a nudge.
 - Video narration (audio) isn't transcribed; only frames are used.
-- Scenario steps are strictly ordered. Field entries can be done in any order, but clicks can't.
+- Within a path, clicks must follow the step order (field entries can be done in any order).
+  Use alternative paths for other valid orders.
 - Single user, local files. Moving to a database and accounts is the main step before hosting.
-- Ideas: branching scenarios (multiple valid paths), timed challenges, trainer dashboards per
-  learner.
+- Ideas: timed challenges and pass marks, trainer dashboards per learner.

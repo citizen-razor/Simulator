@@ -294,3 +294,11 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .reorder span.off { opacity: 0.25; pointer-events: none; }
 .nav-item .reorder + .count, .nav-item .count + .reorder { margin-left: 4px; }
 .btn.disabled { opacity: 0.5; pointer-events: none; }
+.path-note { margin: 0 0 8px; }
+.path-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+.path-tabs .count { font-size: 11px; opacity: 0.7; margin-left: 2px; }
+.path-head { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+.path-head input { flex: 1; }
+.also-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 4px; }
+.also-row .chip { display: inline-flex; align-items: center; gap: 2px; }
+.also-add { font-size: 12px; padding: 2px 6px; color: var(--muted); max-width: 160px; }

@@ -60,6 +60,15 @@ const DraftScreen = z.object({
   imageIndex: z.number().int().nullable(),
   elements: z.array(DraftElement),
 });
+const DraftStep = z.object({
+  id: z.string(),
+  instruction: z.string(),
+  hint: z.string(),
+  elementId: z.string(),
+  alsoElementIds: z.array(z.string()),
+  expect: z.enum(ExpectOps),
+  value: z.string().nullable(),
+});
 const DraftScenario = z.object({
   id: z.string(),
   title: z.string(),
@@ -67,16 +76,8 @@ const DraftScenario = z.object({
   briefing: z.string(),
   startScreenId: z.string().nullable(),
   initialVars: z.array(z.object({ name: z.string(), value: z.string() })),
-  steps: z.array(
-    z.object({
-      id: z.string(),
-      instruction: z.string(),
-      hint: z.string(),
-      elementId: z.string(),
-      expect: z.enum(ExpectOps),
-      value: z.string().nullable(),
-    }),
-  ),
+  steps: z.array(DraftStep),
+  alternatePaths: z.array(z.object({ id: z.string(), name: z.string(), steps: z.array(DraftStep) })),
   successCriteria: z.array(DraftCondition),
 });
 export const DraftSimulation = z.object({
@@ -103,6 +104,7 @@ How the format works:
 - visibleIf hides an element until its conditions pass (e.g. an error banner, a success row).
 - variables: declare every variable used anywhere, with sensible initial values.
 - scenarios: 1-3 realistic training tasks a new user of this system must learn. Each step names exactly one elementId the trainee must use, in order. For fields, use expect "eq"/"contains" with value when the correct entry matters, otherwise "any". Give each step a short imperative instruction and a hint that teaches the reasoning. successCriteria are optional end-state checks. initialVars and startScreenId let a scenario begin mid-workflow.
+- Real tasks often have more than one correct way. If a step can be done equally well with another control (e.g. a toolbar button and a menu item), list those in alsoElementIds. If the task can be completed by a genuinely different sequence (e.g. a quick action instead of the full form), put the recommended sequence in steps and each other valid sequence in alternatePaths with a short name; include the shared opening steps in every path. Leave both empty when there is only one sensible way.
 - ids: short kebab-case, unique across the whole simulation (element ids must be unique across ALL screens).
 - Video frames arrive in order. Merge frames that show the same screen into one screen (use the clearest frame as its image) and use the transitions between frames to infer what was clicked and the workflow's steps.
 - Source code/HTML: derive real screens, field names, validation rules and navigation from it.
@@ -240,6 +242,16 @@ export function draftToSimulation(draft: Draft, id: string, images: StoredImage[
   for (const s of draft.screens) for (const e of s.elements) elementMap.set(e.id, unique(e.id, "el"));
   const screenRef = (r: string | null) => (r ? screenMap.get(r) ?? slug(r, "screen") : undefined);
   const cond = (c: z.infer<typeof DraftCondition>) => ({ var: c.var, op: c.op, value: nn(c.value) });
+  const elementRef = (id: string) => elementMap.get(id) ?? id;
+  const step = (st: z.infer<typeof DraftStep>, i: number) => ({
+    id: slug(st.id, `step-${i + 1}`),
+    instruction: st.instruction,
+    hint: st.hint || undefined,
+    elementId: elementRef(st.elementId),
+    alsoElementIds: st.alsoElementIds.length ? st.alsoElementIds.map(elementRef) : undefined,
+    expect: st.expect,
+    value: nn(st.value),
+  });
 
   return SimulationSchema.parse({
     id,
@@ -288,14 +300,10 @@ export function draftToSimulation(draft: Draft, id: string, images: StoredImage[
       briefing: sc.briefing || undefined,
       startScreenId: screenRef(sc.startScreenId),
       initialVars: sc.initialVars,
-      steps: sc.steps.map((st, i) => ({
-        id: slug(st.id, `step-${i + 1}`),
-        instruction: st.instruction,
-        hint: st.hint || undefined,
-        elementId: elementMap.get(st.elementId) ?? st.elementId,
-        expect: st.expect,
-        value: nn(st.value),
-      })),
+      steps: sc.steps.map(step),
+      alternatePaths: sc.alternatePaths
+        .filter((p) => p.steps.length > 0)
+        .map((p, i) => ({ id: slug(p.id, `path-${i + 2}`).replace(/^main$/, `path-${i + 2}`), name: p.name || `Alternative ${i + 1}`, steps: p.steps.map(step) })),
       successCriteria: sc.successCriteria.map(cond),
     })),
   });
@@ -311,6 +319,15 @@ export function simulationToDraft(sim: Simulation, images: StoredImage[]): Draft
     var: c.var,
     op: c.op,
     value: c.value ?? null,
+  });
+  const draftStep = (st: Simulation["scenarios"][0]["steps"][0]) => ({
+    id: st.id,
+    instruction: st.instruction,
+    hint: st.hint ?? "",
+    elementId: st.elementId,
+    alsoElementIds: st.alsoElementIds ?? [],
+    expect: st.expect,
+    value: st.value ?? null,
   });
   return {
     title: sim.title,
@@ -350,14 +367,8 @@ export function simulationToDraft(sim: Simulation, images: StoredImage[]): Draft
       briefing: sc.briefing ?? "",
       startScreenId: sc.startScreenId ?? null,
       initialVars: sc.initialVars,
-      steps: sc.steps.map((st) => ({
-        id: st.id,
-        instruction: st.instruction,
-        hint: st.hint ?? "",
-        elementId: st.elementId,
-        expect: st.expect,
-        value: st.value ?? null,
-      })),
+      steps: sc.steps.map(draftStep),
+      alternatePaths: sc.alternatePaths.map((p) => ({ id: p.id, name: p.name, steps: p.steps.map(draftStep) })),
       successCriteria: sc.successCriteria.map(cond),
     })),
     authorNotes: "",

@@ -6,6 +6,8 @@ import {
   ElementKinds,
   ExpectOps,
   FIELD_KINDS,
+  MAIN_PATH_ID,
+  scenarioPaths,
   type Action,
   type Condition,
   type Rule,
@@ -327,16 +329,55 @@ function elementOptions(sim: Simulation) {
   ));
 }
 
-export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord, onPlay }: {
+function elementName(sim: Simulation, id: string) {
+  for (const s of sim.screens) {
+    const e = s.elements.find((x) => x.id === id);
+    if (e) return e.label || e.id;
+  }
+  return `${id} (missing)`;
+}
+
+export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord, onPlay, initialPathId }: {
   scenario: Scenario;
   sim: Simulation;
   onChange: (s: Scenario) => void;
   onDelete: () => void;
-  onRecord: () => void;
+  onRecord: (pathId: string) => void;
   onPlay: (mode: "guided" | "scenario") => void;
+  initialPathId?: string;
 }) {
   const set = (patch: Partial<Scenario>) => onChange({ ...scenario, ...patch });
-  const setStep = (i: number, patch: Partial<Step>) => set({ steps: scenario.steps.map((s, j) => (j === i ? { ...s, ...patch } : s)) });
+  const paths = scenarioPaths(scenario);
+  const [pathId, setPathId] = useState(initialPathId ?? MAIN_PATH_ID);
+  const path = paths.find((p) => p.id === pathId) ?? paths[0];
+  const isMain = path.id === MAIN_PATH_ID;
+  const steps = path.steps;
+  const setSteps = (next: Step[]) =>
+    isMain ? set({ steps: next }) : set({ alternatePaths: scenario.alternatePaths.map((p) => (p.id === path.id ? { ...p, steps: next } : p)) });
+  const setStep = (i: number, patch: Partial<Step>) => setSteps(steps.map((st, j) => (j === i ? { ...st, ...patch } : st)));
+
+  const addPath = () => {
+    const id = newId("path");
+    // Alternatives usually share their opening steps, so start from a copy of the main path.
+    const copy = scenario.steps.map((st) => ({ ...structuredClone(st), id: newId("step") }));
+    set({ alternatePaths: [...scenario.alternatePaths, { id, name: `Alternative ${scenario.alternatePaths.length + 1}`, steps: copy }] });
+    setPathId(id);
+  };
+  const renamePath = (name: string) =>
+    set({ alternatePaths: scenario.alternatePaths.map((p) => (p.id === path.id ? { ...p, name } : p)) });
+  const deletePath = () => {
+    if (!confirm(`Delete the path "${path.name}"?`)) return;
+    set({ alternatePaths: scenario.alternatePaths.filter((p) => p.id !== path.id) });
+    setPathId(MAIN_PATH_ID);
+  };
+  const makeMain = () => {
+    // Swap: this path's steps become the main path; the old main path takes its place as an alternative.
+    set({
+      steps: path.steps,
+      alternatePaths: scenario.alternatePaths.map((p) => (p.id === path.id ? { ...p, name: "Previous main path", steps: scenario.steps } : p)),
+    });
+    setPathId(MAIN_PATH_ID);
+  };
   return (
     <div className="inspector wide">
       <div className="inspector-head">
@@ -379,15 +420,33 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
       </details>
 
       <h4>Steps</h4>
-      <p className="muted small">The trainee must perform these in order. Guided mode coaches each one; Scenario mode scores them.</p>
+      <p className="muted small">
+        The trainee performs a path's steps in order. If a task has more than one correct way, add an alternative path:
+        completing <i>any</i> path counts. Guided mode coaches the main path and follows the trainee if they take another.
+      </p>
+      <div className="path-tabs" role="tablist">
+        {paths.map((p) => (
+          <button key={p.id} role="tab" aria-selected={p.id === path.id} className={`chip-btn ${p.id === path.id ? "on" : ""}`} onClick={() => setPathId(p.id)}>
+            {p.name} <span className="count">{p.steps.length}</span>
+          </button>
+        ))}
+        <button className="link-btn add" onClick={addPath} title="Starts as a copy of the main path; change the steps that differ">+ Alternative path</button>
+      </div>
+      {!isMain && (
+        <div className="path-head">
+          <input value={path.name} aria-label="Path name" onChange={(e) => renamePath(e.target.value)} />
+          <button className="btn sm ghost" onClick={makeMain} title="Swap this path with the main path">Make main</button>
+          <button className="btn sm ghost danger" onClick={deletePath}>Delete path</button>
+        </div>
+      )}
       <ol className="step-editor">
-        {scenario.steps.map((st, i) => (
+        {steps.map((st, i) => (
           <li key={st.id}>
             <div className="step-row">
               <input className="grow" value={st.instruction} placeholder="Instruction" onChange={(e) => setStep(i, { instruction: e.target.value })} />
-              <button className="link-btn" onClick={() => set({ steps: move(scenario.steps, i, -1) })} disabled={i === 0}>↑</button>
-              <button className="link-btn" onClick={() => set({ steps: move(scenario.steps, i, 1) })} disabled={i === scenario.steps.length - 1}>↓</button>
-              <button className="link-btn" onClick={() => set({ steps: scenario.steps.filter((_, j) => j !== i) })}>✕</button>
+              <button className="link-btn" onClick={() => setSteps(move(steps, i, -1))} disabled={i === 0}>↑</button>
+              <button className="link-btn" onClick={() => setSteps(move(steps, i, 1))} disabled={i === steps.length - 1}>↓</button>
+              <button className="link-btn" onClick={() => setSteps(steps.filter((_, j) => j !== i))}>✕</button>
             </div>
             <div className="step-row">
               <select className="grow" value={st.elementId} onChange={(e) => setStep(i, { elementId: e.target.value })}>
@@ -399,13 +458,37 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
               </select>
               {st.expect !== "any" && <input value={st.value ?? ""} placeholder="value" onChange={(e) => setStep(i, { value: e.target.value })} />}
             </div>
+            <div className="also-row">
+              {(st.alsoElementIds ?? []).map((id) => (
+                <span key={id} className="chip">
+                  or {elementName(sim, id)}
+                  <button
+                    className="link-btn"
+                    aria-label="Remove alternative"
+                    onClick={() => {
+                      const rest = (st.alsoElementIds ?? []).filter((x) => x !== id);
+                      setStep(i, { alsoElementIds: rest.length ? rest : undefined });
+                    }}
+                  >✕</button>
+                </span>
+              ))}
+              <select
+                className="also-add"
+                value=""
+                title="Other controls that also count for this step"
+                onChange={(e) => e.target.value && setStep(i, { alsoElementIds: [...(st.alsoElementIds ?? []), e.target.value] })}
+              >
+                <option value="">+ also accept…</option>
+                {elementOptions(sim)}
+              </select>
+            </div>
             <input className="hint-input" value={st.hint ?? ""} placeholder="Hint (optional): explain why" onChange={(e) => setStep(i, { hint: e.target.value || undefined })} />
           </li>
         ))}
       </ol>
       <div className="row">
-        <button className="btn sm" onClick={() => set({ steps: [...scenario.steps, { id: newId("step"), instruction: "", elementId: "", expect: "any" }] })}>+ Add step</button>
-        <button className="btn sm" onClick={onRecord}>● Record steps by doing</button>
+        <button className="btn sm" onClick={() => setSteps([...steps, { id: newId("step"), instruction: "", elementId: "", expect: "any" }])}>+ Add step</button>
+        <button className="btn sm" onClick={() => onRecord(path.id)}>● Record steps by doing</button>
       </div>
       <h4>Success criteria</h4>
       <ConditionsEditor
