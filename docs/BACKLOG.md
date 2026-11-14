@@ -62,8 +62,8 @@ Nothing right now.
   linked lists); `{{variables}}` in instructions, hints, goals and expected answers;
   per-scenario opt-out; values saved with attempts
 - ✅ Assignments: complete / pass / master with due dates and notes; "My training" for
-  trainees; status from results; shown in the Player, summary and Progress. Decided: only
-  attempts made after assigning count (earlier results, even mastery, never do)
+  trainees; status from results; shown in the Player, summary and Progress. Decided: credit follows
+  the work, so attempts made before assigning count too
 
 ## Housekeeping (needs you, on GitHub)
 

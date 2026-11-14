@@ -57,16 +57,27 @@ describe("assignment requirements", () => {
 });
 
 describe("assignment status", () => {
-  it("is done by the first qualifying attempt after it was assigned (names match loosely)", () => {
-    const s = assignmentStatus(asg(), [attempt({ finishedAt: "2026-11-01T00:00:00Z" }), attempt({ score: 40, passed: false }), attempt({ finishedAt: "2026-11-12T00:00:00Z" })], "2026-11-14");
-    expect(s).toMatchObject({ state: "done", doneAt: "2026-11-12T00:00:00Z", attempts: 2, bestScore: 90 });
+  it("is done by the first qualifying attempt (names match loosely)", () => {
+    const s = assignmentStatus(asg(), [attempt({ score: 40, passed: false, finishedAt: "2026-11-06T00:00:00Z" }), attempt({ finishedAt: "2026-11-12T00:00:00Z" })], "2026-11-14");
+    expect(s).toMatchObject({ state: "done", doneAt: "2026-11-12T00:00:00Z", attempts: 2, bestScore: 90, doneBeforeAssigned: false });
   });
 
-  it("never counts attempts from before it was assigned, even a mastery", () => {
+  it("gives credit for work done before it was assigned", () => {
     const earlier = attempt({ finishedAt: "2026-11-01T00:00:00Z", score: 100 });
     for (const requirement of ["complete", "pass", "master"] as const) {
-      expect(assignmentStatus(asg({ requirement }), [earlier], "2026-11-14")).toMatchObject({ state: "open", attempts: 0, bestScore: null, earlierAttempts: 1 });
+      expect(assignmentStatus(asg({ requirement }), [earlier], "2026-11-14")).toMatchObject({
+        state: "done",
+        doneAt: "2026-11-01T00:00:00Z",
+        doneBeforeAssigned: true,
+        attempts: 1,
+      });
     }
+  });
+
+  it("still needs the requirement to be met: no credit for a scenario not yet taken or not good enough", () => {
+    expect(assignmentStatus(asg({ requirement: "master" }), [], "2026-11-14").state).toBe("open");
+    expect(assignmentStatus(asg({ requirement: "master" }), [attempt({ score: 70 })], "2026-11-14").state).toBe("open");
+    expect(assignmentStatus(asg({ requirement: "master" }), [attempt({ mode: "guided", assisted: true, score: 100 })], "2026-11-14").state).toBe("open");
   });
 
   it("tracks due dates and pending marking", () => {

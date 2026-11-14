@@ -175,9 +175,9 @@ most urgent first, with **Start** and **Practise with guidance** buttons. The Pl
 what's required, and the end-of-run summary says whether the assignment is now complete.
 
 Status is worked out from results: **done**, **awaiting marking**, **overdue**, **due
-soon** (within 3 days), or **to do**. Only attempts made *after* the assignment was given
-count: earlier results, even a mastery, never do, because an assignment means "take it now".
-If a trainee has earlier attempts, My training tells them they need to take it again. Names match regardless of capitals and spaces. Assignments also appear on each
+soon** (within 3 days), or **to do**. Credit follows the work: any qualifying attempt counts,
+including one a trainee made on their own before the scenario was assigned. Those are
+marked "already done before it was assigned". Names match regardless of capitals and spaces. Assignments also appear on each
 trainee's Progress page.
 
 ### Trainee progress
