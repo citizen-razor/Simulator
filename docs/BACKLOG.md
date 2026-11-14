@@ -15,8 +15,6 @@ Nothing right now.
   code); check the Player at phone sizes.
 - ⬜ **Video narration**: transcribe recordings' audio so the AI hears the explanation
   (needs a speech-to-text service).
-- ⬜ **Clean up unused images**: delete stored screenshots no simulation uses.
-- ⬜ **Carry tags and grading scheme through export/import**: match them by name on import.
 - ⬜ **AI suggestions for tags and rubric criteria** when generating a simulation.
 - ⬜ **Open-world sessions saved as results**, so objectives completed while exploring show
   up in Results and Progress (today the checklist is live only).
@@ -53,6 +51,9 @@ Nothing right now.
   trainer marking on Results; pass/fail and mastery from the scheme
 - ✅ Admin mode via `ADMIN_PIN` (rate-limited; enforced by the server)
 - ✅ Automatic checks on GitHub: typecheck, tests and build on every push and pull request
+- ✅ Clean up unused images (Libraries → Storage; admin only; keeps anything under a day old)
+- ✅ Tags and grading schemes carried through export/import, matched by name; created on
+  import by admins, otherwise dropped with a warning
 
 ## Housekeeping (needs you, on GitHub)
 

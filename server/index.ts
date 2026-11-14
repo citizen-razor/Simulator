@@ -49,9 +49,11 @@ import {
   saveScheme,
   saveTaxonomy,
   updateAttempt,
+  imageUsage,
+  deleteUnusedImages,
 } from "./storage";
 import { buildBundle, exportFileName, importBundle, ImportError } from "./transfer";
-import { adminPinRequired, checkPin, requireAdmin } from "./admin";
+import { adminPinRequired, checkPin, isAdminRequest, requireAdmin } from "./admin";
 import { finalScore } from "../shared/grading";
 
 const PORT = Number(process.env.PORT || 8787);
@@ -137,7 +139,8 @@ app.get(
   "/api/simulations/:id/export",
   route(async (req, res) => {
     const sim = await getSimulation(param(req, "id"));
-    const { bundle, missing } = await buildBundle(sim, readAsset);
+    const [taxonomy, grading] = await Promise.all([readTaxonomy(), readGrading()]);
+    const { bundle, missing } = await buildBundle(sim, readAsset, { taxonomy, schemes: grading.schemes });
     if (missing.length) res.setHeader("X-Missing-Images", String(missing.length));
     res.setHeader("Content-Disposition", `attachment; filename="${exportFileName(sim.title)}"`);
     res.type("application/json").send(JSON.stringify(bundle));
@@ -148,12 +151,16 @@ app.post(
   "/api/import",
   route(async (req, res) => {
     try {
-      const [tax, grading] = await Promise.all([readTaxonomy(), readGrading()]);
-      const known = {
-        tagIds: new Set(tax.topics.flatMap((t) => t.tags.map((x) => x.id))),
-        schemeIds: new Set(grading.schemes.map((s) => s.id)),
-      };
-      const { simulation, warnings } = await importBundle(req.body, saveAsset, newId(), known);
+      const [taxonomy, grading] = await Promise.all([readTaxonomy(), readGrading()]);
+      const { simulation, warnings, created } = await importBundle(req.body, saveAsset, newId(), {
+        taxonomy,
+        schemes: grading.schemes,
+        canCreate: isAdminRequest(req),
+        makeId: newId,
+      });
+      // Save library additions first so the simulation never points at something missing.
+      if (created.taxonomy) await saveTaxonomy(created.taxonomy);
+      for (const scheme of created.schemes) await saveScheme(scheme);
       res.status(201).json({ simulation: await saveSimulation(simulation), warnings });
     } catch (e) {
       if (e instanceof ImportError) throw new HttpError(400, e.message);
@@ -199,6 +206,23 @@ app.delete(
     requireAdmin(req);
     await deleteScheme(param(req, "id"));
     res.status(204).end();
+  }),
+);
+
+app.get(
+  "/api/admin/images",
+  route(async (req, res) => {
+    requireAdmin(req);
+    const r = await imageUsage();
+    res.json({ total: r.total, removable: { count: r.removable.count, bytes: r.removable.bytes }, recentUnused: r.recentUnused });
+  }),
+);
+
+app.post(
+  "/api/admin/images/cleanup",
+  route(async (req, res) => {
+    requireAdmin(req);
+    res.json(await deleteUnusedImages());
   }),
 );
 

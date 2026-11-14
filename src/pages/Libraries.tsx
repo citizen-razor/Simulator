@@ -21,7 +21,7 @@ import { AdminBar } from "../components/AdminGate";
 import { useAdmin } from "../lib/admin";
 
 export default function Libraries({ tab }: { tab?: string }) {
-  const current = tab === "grading" ? "grading" : "tags";
+  const current = tab === "grading" || tab === "storage" ? tab : "tags";
   return (
     <div className="page">
       <div className="page-head">
@@ -33,8 +33,9 @@ export default function Libraries({ tab }: { tab?: string }) {
       <div className="segmented page-tabs" role="tablist">
         <a role="tab" aria-selected={current === "tags"} className={current === "tags" ? "on" : ""} href="#/libraries/tags">Topics & tags</a>
         <a role="tab" aria-selected={current === "grading"} className={current === "grading" ? "on" : ""} href="#/libraries/grading">Grading schemes</a>
+        <a role="tab" aria-selected={current === "storage"} className={current === "storage" ? "on" : ""} href="#/libraries/storage">Storage</a>
       </div>
-      {current === "tags" ? <TaxonomyEditor /> : <GradingEditor />}
+      {current === "tags" ? <TaxonomyEditor /> : current === "grading" ? <GradingEditor /> : <StoragePanel />}
     </div>
   );
 }
@@ -374,6 +375,67 @@ function GradingEditor() {
           )}
         </section>
       </div>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ storage
+
+const fmtBytes = (n: number) =>
+  n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} bytes`;
+
+function StoragePanel() {
+  const { isAdmin, ready } = useAdmin();
+  const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.imageUsage>> | null>(null);
+  const [result, setResult] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = () => api.imageUsage().then(setUsage).catch((e) => setError(e.message));
+  useEffect(() => {
+    if (isAdmin) load();
+  }, [isAdmin]);
+
+  const cleanup = async () => {
+    if (!usage || !confirm(`Permanently delete ${usage.removable.count} unused image${usage.removable.count === 1 ? "" : "s"} (${fmtBytes(usage.removable.bytes)})? This can't be undone.`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await api.cleanupImages();
+      await load();
+      setResult(`Deleted ${r.deleted} image${r.deleted === 1 ? "" : "s"}, freeing ${fmtBytes(r.bytes)}.`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <AdminBar what="storage" />
+      {ready && !isAdmin ? (
+        <p className="muted">Unlock admin mode to see storage.</p>
+      ) : !usage ? (
+        <p className="muted">{error || "Loading…"}</p>
+      ) : (
+        <section className="panel storage">
+          <h3>Screenshot images</h3>
+          <div className="tiles">
+            <div className="tile"><span className="muted small">Stored</span><b>{usage.total.count}</b><span className="muted small">{fmtBytes(usage.total.bytes)}</span></div>
+            <div className="tile"><span className="muted small">Unused, can be deleted</span><b>{usage.removable.count}</b><span className="muted small">{fmtBytes(usage.removable.bytes)}</span></div>
+            <div className="tile"><span className="muted small">Unused, kept for now</span><b>{usage.recentUnused}</b><span className="muted small">less than a day old</span></div>
+          </div>
+          <p className="muted small">
+            Images become unused when screens are deleted, screenshots replaced, or simulations removed. Images less than a day
+            old are always kept, in case they belong to an editor that hasn't been saved yet. Exported files keep their own copies.
+          </p>
+          {error && <div className="alert error">{error}</div>}
+          {result && <div className="alert info">{result}</div>}
+          <button className="btn danger" disabled={busy || usage.removable.count === 0} onClick={cleanup}>
+            {busy ? "Deleting…" : usage.removable.count ? `Delete ${usage.removable.count} unused image${usage.removable.count === 1 ? "" : "s"}` : "Nothing to clean up"}
+          </button>
+        </section>
+      )}
     </>
   );
 }

@@ -37,6 +37,9 @@ you can try every mode right away. Manual authoring works without an API key; on
 | `npm test` | Runs the automated tests |
 | `npm run typecheck` | Checks the TypeScript for errors |
 
+The same typecheck, tests and build run automatically on GitHub for every push and pull
+request (`.github/workflows/ci.yml`).
+
 Everything you create is stored in the `data/` folder. Back it up by copying it, or export
 individual simulations (below).
 
@@ -46,6 +49,10 @@ individual simulations (below).
   one `.simulation.json` file containing the simulation and all its screenshots.
 - **Import:** **⤒ Import** on the Library page. The import is added as a new simulation and
   never overwrites an existing one. Plain simulation JSON (without images) also works.
+- **Tags and grading schemes** travel with the file and are matched by name on import, since
+  ids differ between installations. Anything this installation doesn't have is **added**
+  if an admin imports the file (unlock admin mode first), and otherwise left out with a
+  warning.
 - Imported files are checked before anything is saved. The simulation is validated, and
   each image's actual content must match its type, so a disguised file is rejected. Any
   problems are listed after the import.
@@ -125,6 +132,10 @@ admin mode (below); everyone can view them.
   scheme in ⚙ Settings, and a scenario can override it. Settings is also where you point
   the scheme's "reached a screen" and "system state" checks at this simulation's own
   screens and variables, since each simulation has different ones.
+
+**Storage** (Libraries → Storage, admin only) shows how much space screenshots use, and
+deletes the ones no simulation uses any more. Images less than a day old are always kept,
+in case they belong to an editor that hasn't been saved yet.
 
 **Admin mode:** set `ADMIN_PIN` in `.env` and restart. Editing the libraries and marking
 rubric criteria then needs the PIN (entered on the page; remembered until the browser tab
@@ -206,7 +217,8 @@ shared/engine.ts      simulation engine: modes, rules, steps, scoring, lint chec
 server/index.ts       API routes and security checks
 server/generate.ts    Claude integration (generate, refine, align boxes)
 server/storage.ts     file storage under data/ (and image content checks)
-server/transfer.ts    export / import of a simulation with its images
+server/transfer.ts    export / import of a simulation with its images, tags and grading
+server/cleanup.ts     finding unused images
 src/pages/            Library, Create, Editor, Player, Results
 src/components/       ScreenView (renders screens for play and edit), Inspector panels
 src/lib/media.ts      in-browser image resizing and video key-frame extraction

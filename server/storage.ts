@@ -18,6 +18,7 @@ import {
   type GradingScheme,
   type Taxonomy,
 } from "../shared/library";
+import { findUnusedImages, type StoredFile, type UsageReport } from "./cleanup";
 import { ASSET_ID_PATTERN, AttemptSchema, ID_PATTERN, SimulationSchema, type Attempt, type Simulation } from "../shared/schema";
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
@@ -237,4 +238,36 @@ export function updateAttempt(attemptId: string, fn: (a: Attempt) => Attempt): P
   });
   attemptsLock = job.catch(() => undefined);
   return job;
+}
+
+// ------------------------------------------------------------------ image clean-up
+
+async function storedImages(): Promise<StoredFile[]> {
+  const names = (await fs.readdir(ASSET_DIR)).filter((n) => ASSET_ID_PATTERN.test(n));
+  return Promise.all(
+    names.map(async (id) => {
+      const st = await fs.stat(path.join(ASSET_DIR, id));
+      return { id, size: st.size, mtimeMs: st.mtimeMs };
+    }),
+  );
+}
+
+async function referencedImages(): Promise<Set<string>> {
+  const used = new Set<string>();
+  for (const summary of await listSimulations()) {
+    const sim = await getSimulation(summary.id);
+    for (const s of sim.screens) if (s.imageAssetId) used.add(s.imageAssetId);
+  }
+  return used;
+}
+
+export async function imageUsage(): Promise<UsageReport> {
+  return findUnusedImages(await storedImages(), await referencedImages());
+}
+
+/** Delete removable images. Recomputed at the moment of deletion, never from a stale preview. */
+export async function deleteUnusedImages(): Promise<{ deleted: number; bytes: number }> {
+  const report = await imageUsage();
+  for (const id of report.removable.ids) await fs.rm(assetPath(id), { force: true });
+  return { deleted: report.removable.count, bytes: report.removable.bytes };
 }

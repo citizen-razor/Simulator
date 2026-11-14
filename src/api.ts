@@ -56,6 +56,9 @@ export const api = {
   grading: () => request<GradingLibrary>("GET", "/api/library/grading"),
   saveScheme: (s: GradingScheme) => request<GradingScheme>("PUT", `/api/library/grading/${encodeURIComponent(s.id)}`, s),
   deleteScheme: (id: string) => request<void>("DELETE", `/api/library/grading/${encodeURIComponent(id)}`),
+  imageUsage: () =>
+    request<{ total: { count: number; bytes: number }; removable: { count: number; bytes: number }; recentUnused: number }>("GET", "/api/admin/images"),
+  cleanupImages: () => request<{ deleted: number; bytes: number }>("POST", "/api/admin/images/cleanup"),
   markAttempt: (id: string, marks: Record<string, boolean | null>) => request<Attempt>("POST", `/api/attempts/${encodeURIComponent(id)}/marks`, { marks }),
   addAttempt: (a: Omit<Attempt, "id">) => request<Attempt>("POST", "/api/attempts", { ...a, id: "new" }),
 };

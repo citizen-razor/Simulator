@@ -38,3 +38,18 @@ export function checkPin(pin: unknown): boolean {
 export function requireAdmin(req: Request) {
   if (!checkPin(req.get("X-Admin-Pin"))) throw new HttpError(403, "Admin PIN required.");
 }
+
+/**
+ * Whether this request comes from an admin, without refusing it. A request with no PIN
+ * header simply isn't admin (not counted as a wrong guess); a wrong PIN is still counted.
+ */
+export function isAdminRequest(req: Request): boolean {
+  if (!PIN_HASH) return true;
+  const pin = req.get("X-Admin-Pin");
+  if (!pin) return false;
+  try {
+    return checkPin(pin);
+  } catch {
+    return false; // locked out after too many wrong PINs
+  }
+}

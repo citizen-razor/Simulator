@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import sample from "../samples/helpdesk.json";
 import { sniffImageType } from "../server/storage";
 import { buildBundle, exportFileName, importBundle } from "../server/transfer";
+import { GradingSchemeSchema } from "../shared/library";
 import { SimulationSchema, type Simulation } from "../shared/schema";
 
 // A real 1x1 PNG.
@@ -89,19 +90,76 @@ describe("export / import", () => {
   });
 });
 
-describe("import drops library references that don't exist here", () => {
-  it("removes unknown tags and schemes with warnings", async () => {
+describe("tags and grading schemes travel with exports", () => {
+  // The exporting installation's libraries.
+  const source = {
+    taxonomy: { topics: [{ id: "topic-src", name: "Customer service", description: "", tags: [{ id: "tag-src", name: "Tickets" }] }] },
+    schemes: [
+      GradingSchemeSchema.parse({
+        id: "scheme-src",
+        name: "Support assessment",
+        rubric: [{ id: "crit-src", label: "Ticket ends up resolved", check: { type: "state" } }],
+      }),
+    ],
+  };
+  const binding = { itemId: "crit-src", conditions: [{ var: "t1042_status", op: "eq" as const, value: "Resolved" }] };
+  async function exported() {
     const sim = SimulationSchema.parse(structuredClone(sample));
-    sim.tagIds = ["tag-known", "tag-elsewhere"];
-    sim.grading = { schemeId: "scheme-elsewhere", bindings: [] };
-    sim.scenarios[0].gradingSchemeId = "scheme-known";
-    const { simulation, warnings } = await importBundle(sim, memoryStore().save, "sim-y", {
-      tagIds: new Set(["tag-known"]),
-      schemeIds: new Set(["standard", "scheme-known"]),
-    });
-    expect(simulation.tagIds).toEqual(["tag-known"]);
-    expect(simulation.grading.schemeId).toBeNull();
-    expect(simulation.scenarios[0].gradingSchemeId).toBe("scheme-known");
-    expect(warnings.join(" ")).toMatch(/1 tag .* removed.*Standard grading/);
+    sim.tagIds = ["tag-src"];
+    sim.grading = { schemeId: "scheme-src", bindings: [binding] };
+    const { bundle } = await buildBundle(sim, memoryStore().read, source);
+    return JSON.parse(JSON.stringify(bundle));
+  }
+  let n = 0;
+  const makeId = (p: string) => `${p}-new${++n}`;
+
+  it("exports tag names and the schemes used", async () => {
+    const b = await exported();
+    expect(b.library.tags).toEqual([{ id: "tag-src", name: "Tickets", topic: "Customer service" }]);
+    expect(b.library.schemes.map((s: { name: string }) => s.name)).toEqual(["Support assessment"]);
+  });
+
+  it("keeps everything when imported into the same installation", async () => {
+    const r = await importBundle(await exported(), memoryStore().save, "x", { ...source, canCreate: false, makeId });
+    expect(r.simulation.tagIds).toEqual(["tag-src"]);
+    expect(r.simulation.grading).toEqual({ schemeId: "scheme-src", bindings: [binding] });
+    expect(r.created).toEqual({ taxonomy: null, schemes: [] });
+  });
+
+  it("matches by name on another installation and re-links rubric targets", async () => {
+    const target = {
+      taxonomy: { topics: [{ id: "topic-t", name: "customer service", description: "", tags: [{ id: "tag-t", name: "tickets" }] }] },
+      schemes: [
+        GradingSchemeSchema.parse({
+          id: "scheme-t",
+          name: "Support Assessment",
+          rubric: [{ id: "crit-t", label: "Ticket ends up resolved", check: { type: "state" } }],
+        }),
+      ],
+    };
+    const r = await importBundle(await exported(), memoryStore().save, "x", { ...target, canCreate: false, makeId });
+    expect(r.simulation.tagIds).toEqual(["tag-t"]);
+    expect(r.simulation.grading.schemeId).toBe("scheme-t");
+    expect(r.simulation.grading.bindings).toEqual([{ ...binding, itemId: "crit-t" }]);
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("drops what's missing for non-admins, with warnings", async () => {
+    const r = await importBundle(await exported(), memoryStore().save, "x", { taxonomy: { topics: [] }, schemes: [], canCreate: false, makeId });
+    expect(r.simulation.tagIds).toEqual([]);
+    expect(r.simulation.grading).toEqual({ schemeId: null, bindings: [] });
+    expect(r.created).toEqual({ taxonomy: null, schemes: [] });
+    expect(r.warnings.join(" ")).toMatch(/1 tag .* removed\. An admin can import/);
+    expect(r.warnings.join(" ")).toMatch(/"Support assessment" isn't in this library, so Standard grading is used instead\. An admin/);
+  });
+
+  it("creates what's missing for admins", async () => {
+    const r = await importBundle(await exported(), memoryStore().save, "x", { taxonomy: { topics: [] }, schemes: [], canCreate: true, makeId });
+    const topic = r.created.taxonomy!.topics[0];
+    expect(topic.name).toBe("Customer service");
+    expect(r.simulation.tagIds).toEqual([topic.tags[0].id]);
+    expect(r.created.schemes.map((s) => s.name)).toEqual(["Support assessment"]);
+    expect(r.simulation.grading.schemeId).toBe(r.created.schemes[0].id);
+    expect(r.simulation.grading.bindings).toEqual([binding]); // criterion ids are kept with the copied scheme
   });
 });
