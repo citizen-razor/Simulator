@@ -1,0 +1,416 @@
+/**
+ * AI-assisted authoring: turn uploaded media into a simulation draft with Claude.
+ *
+ * Flow:
+ *   1. The browser sends images (screenshots and frames it pulled out of videos),
+ *      text/code files, PDFs and Word docs.
+ *   2. We send them to Claude with a description of our simulation format and ask
+ *      for a draft using *structured outputs*: the API guarantees the reply
+ *      matches the Zod schema below, so we never have to repair broken JSON.
+ *   3. The draft is converted into a real Simulation (image numbers become stored
+ *      asset ids, ids are cleaned up) and checked again with SimulationSchema.
+ *
+ * The author then fixes anything the AI got wrong in the visual editor.
+ * The API key is read from the environment on the server and never reaches the browser.
+ */
+import Anthropic from "@anthropic-ai/sdk";
+import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
+import mammoth from "mammoth";
+import { z } from "zod";
+import { lintSimulation } from "../shared/engine";
+import {
+  ActionTypes,
+  ConditionOps,
+  ElementKinds,
+  ExpectOps,
+  SimulationSchema,
+  type Simulation,
+} from "../shared/schema";
+
+export const MODEL = process.env.SIM_MODEL || "claude-opus-5-5";
+
+// ------------------------------------------------------------ draft schema
+// Same shape as SimulationSchema, but every field is required (nullable instead
+// of optional) and screenshots are referenced by number. That form works best
+// with structured outputs.
+
+const DraftCondition = z.object({ var: z.string(), op: z.enum(ConditionOps), value: z.string().nullable() });
+const DraftAction = z.object({
+  type: z.enum(ActionTypes),
+  screenId: z.string().nullable(),
+  var: z.string().nullable(),
+  value: z.string().nullable(),
+  tone: z.enum(["info", "success", "error"]).nullable(),
+});
+const DraftElement = z.object({
+  id: z.string(),
+  label: z.string(),
+  kind: z.enum(ElementKinds),
+  rect: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }),
+  placeholder: z.string().nullable(),
+  options: z.array(z.string()),
+  bindVar: z.string().nullable(),
+  visibleIf: z.array(DraftCondition),
+  rules: z.array(z.object({ if: z.array(DraftCondition), then: z.array(DraftAction) })),
+});
+const DraftScreen = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  imageIndex: z.number().int().nullable(),
+  elements: z.array(DraftElement),
+});
+const DraftScenario = z.object({
+  id: z.string(),
+  title: z.string(),
+  goal: z.string(),
+  briefing: z.string(),
+  startScreenId: z.string().nullable(),
+  initialVars: z.array(z.object({ name: z.string(), value: z.string() })),
+  steps: z.array(
+    z.object({
+      id: z.string(),
+      instruction: z.string(),
+      hint: z.string(),
+      elementId: z.string(),
+      expect: z.enum(ExpectOps),
+      value: z.string().nullable(),
+    }),
+  ),
+  successCriteria: z.array(DraftCondition),
+});
+export const DraftSimulation = z.object({
+  title: z.string(),
+  description: z.string(),
+  startScreenId: z.string(),
+  variables: z.array(z.object({ name: z.string(), initial: z.string(), description: z.string() })),
+  screens: z.array(DraftScreen),
+  scenarios: z.array(DraftScenario),
+  authorNotes: z.string(),
+});
+type Draft = z.infer<typeof DraftSimulation>;
+
+const SYSTEM_PROMPT = `You build interactive software-training simulations from source material (screenshots, frames from screen recordings, source code/HTML, and written procedures). Trainees will click and type in your simulation in three modes: open-world exploration, guided step-by-step coaching, and graded scenarios. Your output is a JSON simulation in the given schema.
+
+How the format works:
+- screens: each is one view of the system. If a provided image shows that view, set imageIndex to its number; otherwise null and the app draws a wireframe from your elements, so lay them out like a clean UI.
+- elements: interactive or display regions on a screen. rect x/y/w/h are PERCENTAGES (0-100) of the screen's width/height. When a screen has an image, place each rect tightly over the matching control in the image; measure carefully. kind:
+  - button / link / hotspot: activated by a click. hotspot = invisible clickable area over an image region (table rows, tabs, icons).
+  - input / textarea / select / checkbox: fields. Their value is stored in the variable named by bindVar (always set bindVar to a declared variable). Checkbox values are "true"/"false". select needs options.
+  - text: static label, not interactive. Use it on wireframe screens to show headings, data and status. On image screens, only add text elements for values that change during the simulation.
+- Labels, set values, message text and condition values may contain {{variableName}} templates that show current state, e.g. "Status: {{ticketStatus}}".
+- rules run when an element is activated (or when a field's value is committed). The FIRST rule whose "if" conditions all pass runs its "then" actions; use an empty "if" as the final catch-all. Actions: navigate (screenId), set (var, value), toggle (var), message (value, tone). Model realistic validation (e.g. required fields show an error message instead of navigating) and realistic consequences (state changes that show up on other screens).
+- visibleIf hides an element until its conditions pass (e.g. an error banner, a success row).
+- variables: declare every variable used anywhere, with sensible initial values.
+- scenarios: 1-3 realistic training tasks a new user of this system must learn. Each step names exactly one elementId the trainee must use, in order. For fields, use expect "eq"/"contains" with value when the correct entry matters, otherwise "any". Give each step a short imperative instruction and a hint that teaches the reasoning. successCriteria are optional end-state checks. initialVars and startScreenId let a scenario begin mid-workflow.
+- ids: short kebab-case, unique across the whole simulation (element ids must be unique across ALL screens).
+- Video frames arrive in order. Merge frames that show the same screen into one screen (use the clearest frame as its image) and use the transitions between frames to infer what was clicked and the workflow's steps.
+- Source code/HTML: derive real screens, field names, validation rules and navigation from it.
+- Written procedures: turn them into scenarios and, if there are no images, wireframe screens.
+- authorNotes: briefly tell the author what you assumed, what you could not determine, and what they should check in the editor.
+Prefer a complete, coherent, working simulation over an exhaustive one: typically 3-8 screens.`;
+
+// ------------------------------------------------------------ inputs
+
+export const GenerateInputSchema = z.object({
+  title: z.string().max(200).optional(),
+  notes: z.string().max(20000).default(""),
+  images: z
+    .array(
+      z.object({
+        name: z.string().max(300),
+        mediaType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]),
+        data: z.string(), // base64
+        width: z.number().positive(),
+        height: z.number().positive(),
+        source: z.string().max(300).optional(), // e.g. "video demo.mp4 @ 12.5s"
+      }),
+    )
+    .max(40)
+    .default([]),
+  texts: z.array(z.object({ name: z.string().max(300), content: z.string().max(400_000) })).max(50).default([]),
+  pdfs: z.array(z.object({ name: z.string().max(300), data: z.string() })).max(5).default([]),
+  docx: z.array(z.object({ name: z.string().max(300), data: z.string() })).max(10).default([]),
+});
+export type GenerateInput = z.infer<typeof GenerateInputSchema>;
+
+export interface StoredImage {
+  assetId: string;
+  width: number;
+  height: number;
+  mediaType: string;
+  data: string;
+  label: string;
+}
+
+type Content = Anthropic.Beta.BetaContentBlockParam;
+
+async function buildContent(input: GenerateInput, images: StoredImage[]): Promise<Content[]> {
+  const content: Content[] = [];
+  for (const pdf of input.pdfs) {
+    content.push({
+      type: "document",
+      title: pdf.name,
+      source: { type: "base64", media_type: "application/pdf", data: pdf.data },
+    });
+  }
+  images.forEach((img, i) => {
+    content.push({ type: "text", text: `Image ${i}: ${img.label} (${img.width}x${img.height}px)` });
+    content.push({
+      type: "image",
+      source: { type: "base64", media_type: img.mediaType as "image/png", data: img.data },
+    });
+  });
+  for (const t of input.texts) content.push({ type: "text", text: `<file name="${t.name}">\n${t.content}\n</file>` });
+  for (const d of input.docx) {
+    const { value } = await mammoth.extractRawText({ buffer: Buffer.from(d.data, "base64") });
+    content.push({ type: "text", text: `<file name="${d.name}">\n${value}\n</file>` });
+  }
+  return content;
+}
+
+// ------------------------------------------------------------ Claude call
+
+export type Progress = (p: { phase: "thinking" | "writing"; chars: number }) => void;
+
+let client: Anthropic | null = null;
+const getClient = () => (client ??= new Anthropic());
+
+async function callClaude(content: Content[], onProgress: Progress): Promise<Draft> {
+  const stream = getClient().beta.messages.stream({
+    model: MODEL,
+    max_tokens: 64000,
+    // If a safety classifier declines, retry on a suitable fallback model automatically.
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    output_config: { effort: "high", format: betaZodOutputFormat(DraftSimulation) },
+    system: SYSTEM_PROMPT,
+    messages: [{ role: "user", content }],
+  });
+  let chars = 0;
+  onProgress({ phase: "thinking", chars });
+  stream.on("text", (delta) => {
+    chars += delta.length;
+    onProgress({ phase: "writing", chars });
+  });
+  const message = await stream.finalMessage();
+  if (message.stop_reason === "refusal") {
+    throw new Error(`The model declined this request${message.stop_details?.explanation ? `: ${message.stop_details.explanation}` : "."}`);
+  }
+  if (message.stop_reason === "max_tokens") {
+    throw new Error("The simulation was too large to generate in one pass. Try fewer files or narrower notes.");
+  }
+  if (!message.parsed_output) throw new Error("The model's reply could not be read as a simulation.");
+  return message.parsed_output;
+}
+
+export function describeApiError(e: unknown): { status: number; message: string } {
+  if (e instanceof Anthropic.AuthenticationError) {
+    return { status: 401, message: "The Anthropic API key is missing or invalid. Set ANTHROPIC_API_KEY in .env and restart." };
+  }
+  if (e instanceof Anthropic.RateLimitError) return { status: 429, message: "Rate limited by the Anthropic API. Wait a minute and try again." };
+  if (e instanceof Anthropic.BadRequestError) return { status: 400, message: `The API rejected the request: ${e.message}` };
+  if (e instanceof Anthropic.APIError) return { status: 502, message: `Anthropic API error ${e.status ?? ""}: ${e.message}` };
+  if (e instanceof Error && /api key|apiKey|authentication/i.test(e.message)) {
+    return { status: 401, message: "No Anthropic API key found. Copy .env.example to .env, add your key, and restart." };
+  }
+  return { status: 500, message: e instanceof Error ? e.message : String(e) };
+}
+
+// ------------------------------------------------------------ draft -> Simulation
+
+const slug = (s: string, fallback: string) =>
+  s.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || fallback;
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(n) ? n : lo));
+const nn = <T>(v: T | null): T | undefined => (v === null ? undefined : v);
+
+export function draftToSimulation(draft: Draft, id: string, images: StoredImage[]): Simulation {
+  // Make ids safe and unique, remembering renames so references still resolve.
+  const used = new Set<string>();
+  const unique = (raw: string, fallback: string) => {
+    let base = slug(raw, fallback);
+    let candidate = base;
+    for (let i = 2; used.has(candidate); i++) candidate = `${base}-${i}`;
+    used.add(candidate);
+    return candidate;
+  };
+  const screenMap = new Map<string, string>();
+  const elementMap = new Map<string, string>();
+  for (const s of draft.screens) screenMap.set(s.id, unique(s.id, "screen"));
+  for (const s of draft.screens) for (const e of s.elements) elementMap.set(e.id, unique(e.id, "el"));
+  const screenRef = (r: string | null) => (r ? screenMap.get(r) ?? slug(r, "screen") : undefined);
+  const cond = (c: z.infer<typeof DraftCondition>) => ({ var: c.var, op: c.op, value: nn(c.value) });
+
+  return SimulationSchema.parse({
+    id,
+    title: draft.title || "Untitled simulation",
+    description: draft.description,
+    startScreenId: screenRef(draft.startScreenId) ?? screenMap.values().next().value,
+    variables: draft.variables.map((v) => ({ name: v.name, initial: v.initial, description: v.description || undefined })),
+    screens: draft.screens.map((s) => {
+      const img = s.imageIndex !== null ? images[s.imageIndex] : undefined;
+      return {
+        id: screenMap.get(s.id)!,
+        name: s.name,
+        description: s.description || undefined,
+        imageAssetId: img?.assetId ?? null,
+        aspect: img ? img.width / img.height : 1.6,
+        elements: s.elements.map((e) => {
+          const x = clamp(e.rect.x, 0, 99);
+          const y = clamp(e.rect.y, 0, 99);
+          return {
+            id: elementMap.get(e.id)!,
+            label: e.label,
+            kind: e.kind,
+            rect: { x, y, w: clamp(e.rect.w, 1, 100 - x), h: clamp(e.rect.h, 1, 100 - y) },
+            placeholder: nn(e.placeholder),
+            options: e.options.length ? e.options : undefined,
+            bindVar: nn(e.bindVar),
+            visibleIf: e.visibleIf.length ? e.visibleIf.map(cond) : undefined,
+            rules: e.rules.map((r) => ({
+              if: r.if.map(cond),
+              then: r.then.map((a) => ({
+                type: a.type,
+                screenId: screenRef(a.screenId),
+                var: nn(a.var),
+                value: nn(a.value),
+                tone: nn(a.tone),
+              })),
+            })),
+          };
+        }),
+      };
+    }),
+    scenarios: draft.scenarios.map((sc) => ({
+      id: slug(sc.id, "scenario"),
+      title: sc.title,
+      goal: sc.goal,
+      briefing: sc.briefing || undefined,
+      startScreenId: screenRef(sc.startScreenId),
+      initialVars: sc.initialVars,
+      steps: sc.steps.map((st, i) => ({
+        id: slug(st.id, `step-${i + 1}`),
+        instruction: st.instruction,
+        hint: st.hint || undefined,
+        elementId: elementMap.get(st.elementId) ?? st.elementId,
+        expect: st.expect,
+        value: nn(st.value),
+      })),
+      successCriteria: sc.successCriteria.map(cond),
+    })),
+  });
+}
+
+/** Turn a saved simulation back into a draft so Claude can revise it. */
+export function simulationToDraft(sim: Simulation, images: StoredImage[]): Draft {
+  const indexOf = (assetId?: string | null) => {
+    const i = images.findIndex((im) => im.assetId === assetId);
+    return i === -1 ? null : i;
+  };
+  const cond = (c: { var: string; op: Draft["screens"][0]["elements"][0]["visibleIf"][0]["op"]; value?: string }) => ({
+    var: c.var,
+    op: c.op,
+    value: c.value ?? null,
+  });
+  return {
+    title: sim.title,
+    description: sim.description,
+    startScreenId: sim.startScreenId,
+    variables: sim.variables.map((v) => ({ name: v.name, initial: v.initial, description: v.description ?? "" })),
+    screens: sim.screens.map((s) => ({
+      id: s.id,
+      name: s.name,
+      description: s.description ?? "",
+      imageIndex: indexOf(s.imageAssetId),
+      elements: s.elements.map((e) => ({
+        id: e.id,
+        label: e.label,
+        kind: e.kind,
+        rect: e.rect,
+        placeholder: e.placeholder ?? null,
+        options: e.options ?? [],
+        bindVar: e.bindVar ?? null,
+        visibleIf: (e.visibleIf ?? []).map(cond),
+        rules: e.rules.map((r) => ({
+          if: r.if.map(cond),
+          then: r.then.map((a) => ({
+            type: a.type,
+            screenId: a.screenId ?? null,
+            var: a.var ?? null,
+            value: a.value ?? null,
+            tone: a.tone ?? null,
+          })),
+        })),
+      })),
+    })),
+    scenarios: sim.scenarios.map((sc) => ({
+      id: sc.id,
+      title: sc.title,
+      goal: sc.goal,
+      briefing: sc.briefing ?? "",
+      startScreenId: sc.startScreenId ?? null,
+      initialVars: sc.initialVars,
+      steps: sc.steps.map((st) => ({
+        id: st.id,
+        instruction: st.instruction,
+        hint: st.hint ?? "",
+        elementId: st.elementId,
+        expect: st.expect,
+        value: st.value ?? null,
+      })),
+      successCriteria: sc.successCriteria.map(cond),
+    })),
+    authorNotes: "",
+  };
+}
+
+export interface GenerateResult {
+  simulation: Simulation;
+  notes: string;
+  issues: string[];
+}
+
+export async function generateSimulation(
+  input: GenerateInput,
+  images: StoredImage[],
+  id: string,
+  onProgress: Progress,
+): Promise<GenerateResult> {
+  const content = await buildContent(input, images);
+  if (content.length === 0 && !input.notes.trim()) throw new Error("Add at least one file or a description.");
+  content.push({
+    type: "text",
+    text:
+      `Build a training simulation from the material above.` +
+      (input.title ? `\nWorking title: ${input.title}` : "") +
+      (input.notes.trim() ? `\nAuthor's notes and training goals:\n${input.notes.trim()}` : ""),
+  });
+  const draft = await callClaude(content, onProgress);
+  if (input.title) draft.title = input.title;
+  const simulation = draftToSimulation(draft, id, images);
+  return { simulation, notes: draft.authorNotes, issues: lintSimulation(simulation) };
+}
+
+export async function refineSimulation(
+  sim: Simulation,
+  instruction: string,
+  images: StoredImage[],
+  onProgress: Progress,
+): Promise<GenerateResult> {
+  const content: Content[] = [];
+  images.forEach((img, i) => {
+    content.push({ type: "text", text: `Image ${i}: ${img.label} (${img.width}x${img.height}px)` });
+    content.push({ type: "image", source: { type: "base64", media_type: img.mediaType as "image/png", data: img.data } });
+  });
+  content.push({
+    type: "text",
+    text:
+      `Here is the current simulation:\n<simulation>\n${JSON.stringify(simulationToDraft(sim, images))}\n</simulation>\n\n` +
+      `Revise it according to the author's request below and return the COMPLETE updated simulation. ` +
+      `Keep existing ids, layout and content unless the request requires changing them.\n\n<request>\n${instruction}\n</request>`,
+  });
+  const draft = await callClaude(content, onProgress);
+  const updated = draftToSimulation(draft, sim.id, images);
+  updated.createdAt = sim.createdAt;
+  return { simulation: updated, notes: draft.authorNotes, issues: lintSimulation(updated) };
+}

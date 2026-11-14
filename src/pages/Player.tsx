@@ -1,0 +1,388 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createSession,
+  currentStep,
+  findElement,
+  getScenario,
+  getScreen,
+  interact,
+  newId,
+  scoreSession,
+  switchMode,
+  takeHint,
+  type Feedback,
+  type InteractionEvent,
+  type Mode,
+  type SessionState,
+} from "../../shared/engine";
+import type { Simulation, SimElement, Step } from "../../shared/schema";
+import { api } from "../api";
+import { PlayScreen } from "../components/ScreenView";
+import { navigate } from "../router";
+
+const MODES: { id: Mode; label: string; blurb: string }[] = [
+  { id: "open", label: "Open world", blurb: "Explore freely. Nothing is scored." },
+  { id: "guided", label: "Guided", blurb: "Step-by-step coaching. Wrong moves are blocked." },
+  { id: "scenario", label: "Scenario", blurb: "Complete the goal on your own. Scored." },
+];
+
+interface Toast extends Feedback {
+  id: number;
+}
+
+function formatTime(sec: number) {
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+}
+
+function recordedStep(el: SimElement, value?: string): Step {
+  const label = el.label || el.id;
+  if (value === undefined) return { id: newId("step"), elementId: el.id, instruction: `Click "${label}".`, expect: "any" };
+  if (el.kind === "select") return { id: newId("step"), elementId: el.id, instruction: `Set ${label} to "${value}".`, expect: "eq", value };
+  if (el.kind === "checkbox") {
+    return { id: newId("step"), elementId: el.id, instruction: `${value === "true" ? "Check" : "Uncheck"} "${label}".`, expect: "eq", value };
+  }
+  return { id: newId("step"), elementId: el.id, instruction: `Fill in ${label}.`, hint: value ? `e.g. "${value}"` : undefined, expect: "any" };
+}
+
+export default function Player({ id, query }: { id: string; query: URLSearchParams }) {
+  const recordInto = query.get("record");
+  const [sim, setSim] = useState<Simulation | null>(null);
+  const [error, setError] = useState("");
+  const [mode, setMode] = useState<Mode>(recordInto ? "open" : ((query.get("mode") as Mode) || "open"));
+  const [session, setSession] = useState<SessionState | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [showHotspots, setShowHotspots] = useState(false);
+  const [showState, setShowState] = useState(false);
+  const [hint, setHint] = useState("");
+  const [summary, setSummary] = useState<null | { completed: boolean; score: number; durationSec: number }>(null);
+  const [recording, setRecording] = useState<Step[]>([]);
+  const [, tick] = useState(0);
+  const toastId = useRef(0);
+
+  useEffect(() => {
+    api
+      .get(id)
+      .then((s) => {
+        setSim(s);
+        const want = recordInto ?? query.get("scenario");
+        const scenarioId = getScenario(s, want)?.id ?? ((query.get("mode") ?? "open") !== "open" ? s.scenarios[0]?.id ?? null : null);
+        setSession(createSession(s, scenarioId));
+        if (!scenarioId && !recordInto) setMode("open");
+      })
+      .catch((e) => setError(e.message));
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Timer refresh while a scored run is in progress.
+  useEffect(() => {
+    if (mode === "open" || !session?.scenarioId || session.finished) return;
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [mode, session?.scenarioId, session?.finished]);
+
+  const pushToasts = useCallback((fb: Feedback[]) => {
+    if (!fb.length) return;
+    const items = fb.map((f) => ({ ...f, id: ++toastId.current }));
+    setToasts((t) => [...t, ...items].slice(-4));
+    for (const it of items) setTimeout(() => setToasts((t) => t.filter((x) => x.id !== it.id)), it.tone === "error" ? 5000 : 3000);
+  }, []);
+
+  if (error) return <div className="page"><div className="alert error">{error}</div></div>;
+  if (!sim || !session) return <div className="page muted">Loading…</div>;
+
+  const scenario = getScenario(sim, session.scenarioId);
+  const screen = getScreen(sim, session.screenId) ?? sim.screens[0];
+  const step = mode === "open" ? null : currentStep(sim, session);
+  const stepTarget = step ? findElement(sim, step.elementId) : null;
+  const score = scoreSession(sim, session);
+
+  const finish = (s: SessionState, completed: boolean, m: Mode) => {
+    const sc = getScenario(sim, s.scenarioId);
+    const result = scoreSession(sim, s);
+    setSummary({ completed, score: result.score, durationSec: result.durationSec });
+    if (!sc || m === "open" || recordInto) return;
+    api
+      .addAttempt({
+        simulationId: sim.id,
+        simulationTitle: sim.title,
+        scenarioId: sc.id,
+        scenarioTitle: sc.title,
+        mode: m === "guided" ? "guided" : "scenario",
+        assisted: s.assisted || m === "guided",
+        completed,
+        score: result.score,
+        errors: s.errors,
+        hintsUsed: s.hintsUsed,
+        durationSec: result.durationSec,
+        stepsCompleted: result.stepsCompleted,
+        stepsTotal: result.stepsTotal,
+        mistakes: s.mistakes,
+        finishedAt: new Date().toISOString(),
+      })
+      .catch((e) => pushToasts([{ tone: "error", text: `Couldn't save result: ${e.message}` }]));
+  };
+
+  const handle = (ev: InteractionEvent) => {
+    if (summary) return;
+    if (recordInto) {
+      const found = findElement(sim, ev.elementId);
+      if (found) setRecording((r) => [...r, recordedStep(found.element, ev.type === "commit" ? ev.value : undefined)]);
+    }
+    const r = interact(sim, session, mode, ev);
+    setSession(r.state);
+    pushToasts(r.feedback);
+    if (r.completedStep || r.blocked) setHint("");
+    if (r.state.completed && !session.completed) finish(r.state, true, mode);
+  };
+
+  const changeMode = (m: Mode) => {
+    let s = session;
+    if (m !== "open" && !s.scenarioId && sim.scenarios.length) s = createSession(sim, sim.scenarios[0].id);
+    setSession(switchMode(s, m));
+    setMode(m);
+    setHint("");
+  };
+
+  const changeScenario = (scenarioId: string | null) => {
+    setSession(createSession(sim, scenarioId));
+    setSummary(null);
+    setHint("");
+    if (!scenarioId) setMode("open");
+  };
+
+  const restart = (m: Mode = mode) => {
+    setSession(createSession(sim, session.scenarioId));
+    setMode(m);
+    setSummary(null);
+    setHint("");
+  };
+
+  const askHint = () => {
+    const r = takeHint(sim, session);
+    setSession(r.state);
+    setHint(r.hint);
+  };
+
+  const saveRecording = async () => {
+    const fresh = await api.get(sim.id);
+    const target = getScenario(fresh, recordInto);
+    if (!target) return;
+    target.steps.push(...recording);
+    await api.save(fresh);
+    navigate(`/edit/${sim.id}?scenario=${target.id}`);
+  };
+
+  const elapsed = Math.round((Date.now() - session.startedAt) / 1000);
+  const judged = mode !== "open" && !!scenario;
+  const noScenarios = sim.scenarios.length === 0;
+
+  return (
+    <div className="player">
+      <div className="player-bar">
+        <div className="player-title">
+          <b>{sim.title}</b>
+          <span className="muted small">{screen.name}</span>
+        </div>
+        {!recordInto && (
+          <div className="segmented" role="tablist" aria-label="Mode">
+            {MODES.map((m) => (
+              <button
+                key={m.id}
+                role="tab"
+                aria-selected={mode === m.id}
+                className={mode === m.id ? "on" : ""}
+                disabled={m.id !== "open" && noScenarios}
+                title={m.id !== "open" && noScenarios ? "Add a scenario in the editor to use this mode" : m.blurb}
+                onClick={() => changeMode(m.id)}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="row">
+          {!recordInto && sim.scenarios.length > 0 && (
+            <select value={session.scenarioId ?? ""} onChange={(e) => changeScenario(e.target.value || null)} aria-label="Scenario">
+              {mode === "open" && <option value="">No scenario</option>}
+              {sim.scenarios.map((s) => (
+                <option key={s.id} value={s.id}>{s.title}</option>
+              ))}
+            </select>
+          )}
+          <button className="btn sm" onClick={() => restart()}>↺ Restart</button>
+          <a className="btn sm ghost" href={`#/edit/${sim.id}`}>Edit</a>
+        </div>
+      </div>
+
+      <div className="player-body">
+        <div className="stage">
+          {mode === "guided" && stepTarget && stepTarget.screen.id !== screen.id && (
+            <div className="alert info stage-banner">
+              The next step is on the <b>{stepTarget.screen.name}</b> screen.
+              <button className="btn sm" onClick={() => setSession({ ...session, screenId: stepTarget.screen.id, history: [...session.history, stepTarget.screen.id] })}>
+                Take me there
+              </button>
+            </div>
+          )}
+          <div className="stage-inner">
+            <PlayScreen
+              screen={screen}
+              vars={session.vars}
+              highlightId={mode === "guided" ? step?.elementId : null}
+              focusHighlight={mode === "guided"}
+              revealHotspots={showHotspots || mode === "guided"}
+              onActivate={(el) => handle({ type: "activate", elementId: el.id })}
+              onCommit={(el, value) => handle({ type: "commit", elementId: el.id, value })}
+            />
+            <div className="toasts" aria-live="polite">
+              {toasts.map((t) => (
+                <div key={t.id} className={`toast ${t.tone}`}>{t.text}</div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <aside className="side">
+          {recordInto ? (
+            <RecordingPanel
+              scenarioTitle={getScenario(sim, recordInto)?.title ?? recordInto}
+              steps={recording}
+              onRemove={(i) => setRecording((r) => r.filter((_, j) => j !== i))}
+              onSave={saveRecording}
+              onCancel={() => navigate(`/edit/${sim.id}`)}
+            />
+          ) : (
+            <>
+              <p className="muted small">{MODES.find((m) => m.id === mode)!.blurb}</p>
+              {judged && scenario && (
+                <section className="panel">
+                  <h3>{scenario.title}</h3>
+                  <p><b>Goal:</b> {scenario.goal}</p>
+                  {scenario.briefing && <p className="muted">{scenario.briefing}</p>}
+                  {session.assisted && mode === "scenario" && <p className="badge">Assisted run</p>}
+                </section>
+              )}
+
+              {mode === "guided" && scenario && (
+                <section className="panel">
+                  <ol className="steps">
+                    {scenario.steps.map((st, i) => (
+                      <li key={st.id} className={i < session.stepIndex ? "done" : i === session.stepIndex ? "current" : ""}>
+                        {st.instruction}
+                        {i === session.stepIndex && st.hint && <div className="hint">💡 {st.hint}</div>}
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              )}
+
+              {mode === "scenario" && scenario && (
+                <section className="panel stats">
+                  <div><span className="muted small">Progress</span><b>{score.stepsCompleted}/{score.stepsTotal}</b></div>
+                  <div><span className="muted small">Errors</span><b>{session.errors}</b></div>
+                  <div><span className="muted small">Time</span><b>{formatTime(session.finished ? score.durationSec : elapsed)}</b></div>
+                  <div className="progress"><span style={{ width: `${(100 * score.stepsCompleted) / Math.max(1, score.stepsTotal)}%` }} /></div>
+                  {hint && <div className="hint">💡 {hint}</div>}
+                  <div className="row">
+                    <button className="btn sm" onClick={askHint} disabled={session.finished}>Hint (−5)</button>
+                    <button className="btn sm ghost" onClick={() => changeMode("guided")} disabled={session.finished}>Switch to guided</button>
+                    <button className="btn sm ghost danger" onClick={() => finish(session, false, mode)} disabled={session.finished}>Give up</button>
+                  </div>
+                </section>
+              )}
+
+              {mode === "open" && (
+                <section className="panel">
+                  <h3>Explore</h3>
+                  <p className="muted small">Try anything. The system reacts as it would for real.</p>
+                  <div className="screen-list">
+                    {sim.screens.map((s) => (
+                      <span key={s.id} className={`chip ${session.history.includes(s.id) ? "visited" : ""} ${s.id === screen.id ? "here" : ""}`}>
+                        {s.name}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="muted small">
+                    Visited {new Set(session.history).size} of {sim.screens.length} screens
+                  </p>
+                  {sim.scenarios.length > 0 && (
+                    <button className="btn sm" onClick={() => changeMode("scenario")}>Try a scenario →</button>
+                  )}
+                </section>
+              )}
+
+              <section className="panel toggles">
+                <label><input type="checkbox" checked={showHotspots} onChange={(e) => setShowHotspots(e.target.checked)} /> Outline clickable areas</label>
+                <label><input type="checkbox" checked={showState} onChange={(e) => setShowState(e.target.checked)} /> Show system state</label>
+                {showState && (
+                  <table className="vars">
+                    <tbody>
+                      {Object.entries(session.vars).map(([k, v]) => (
+                        <tr key={k}><td>{k}</td><td>{/pass/i.test(k) && v ? "•••" : v || <span className="muted">(empty)</span>}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+            </>
+          )}
+        </aside>
+      </div>
+
+      {summary && scenario && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <h2>{summary.completed ? "Scenario complete" : "Scenario ended"}</h2>
+            <p className="big-score">{summary.score}<span>/100</span></p>
+            <p className="muted">
+              {score.stepsCompleted} of {score.stepsTotal} steps · {session.errors} error{session.errors === 1 ? "" : "s"} · {session.hintsUsed} hint
+              {session.hintsUsed === 1 ? "" : "s"} · {formatTime(summary.durationSec)}
+              {(session.assisted || mode === "guided") && " · assisted"}
+            </p>
+            {session.mistakes.length > 0 && (
+              <div className="panel">
+                <b>What to review</b>
+                <ul>{session.mistakes.map((m, i) => <li key={i}>{m}</li>)}</ul>
+              </div>
+            )}
+            <div className="row">
+              <button className="btn primary" onClick={() => restart("scenario")}>Try again (scenario)</button>
+              <button className="btn" onClick={() => restart("guided")}>Practice in guided mode</button>
+              <button className="btn ghost" onClick={() => { setSummary(null); setMode("open"); }}>Keep exploring</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecordingPanel({ scenarioTitle, steps, onRemove, onSave, onCancel }: {
+  scenarioTitle: string;
+  steps: Step[];
+  onRemove: (i: number) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="panel recording">
+      <h3><span className="rec-dot" /> Recording steps</h3>
+      <p className="muted small">
+        Perform the task as an expert would. Each click or field entry becomes a step in <b>{scenarioTitle}</b>. You can edit
+        wording and expected values in the editor afterwards.
+      </p>
+      <ol className="steps">
+        {steps.map((s, i) => (
+          <li key={s.id}>
+            {s.instruction}
+            <button className="link-btn" onClick={() => onRemove(i)} aria-label="Remove step">✕</button>
+          </li>
+        ))}
+      </ol>
+      {steps.length === 0 && <p className="muted small">No steps yet. Start interacting with the screen.</p>}
+      <div className="row">
+        <button className="btn primary sm" disabled={!steps.length} onClick={onSave}>Add {steps.length} step{steps.length === 1 ? "" : "s"} to scenario</button>
+        <button className="btn sm ghost" onClick={onCancel}>Cancel</button>
+      </div>
+    </section>
+  );
+}

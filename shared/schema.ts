@@ -1,0 +1,173 @@
+/**
+ * The simulation data model.
+ *
+ * A simulation is plain JSON. Everything the app does (authoring, AI generation,
+ * playing in any mode, scoring) reads and writes this one shape, so it is the
+ * single most important file to understand. It is validated with Zod on the
+ * server whenever a simulation is saved or produced by the AI.
+ *
+ *   Simulation
+ *   ├─ variables[]   named pieces of state (all values are strings)
+ *   ├─ screens[]     what the trainee sees; optional screenshot background
+ *   │   └─ elements[]  clickable / typeable regions positioned in % of the screen
+ *   │       └─ rules[]   "when activated, if <conditions>, then <actions>"
+ *   └─ scenarios[]   goals for Scenario and Guided mode
+ *       └─ steps[]     the expected interactions, in order
+ */
+import { z } from "zod";
+
+export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const id = z.string().regex(ID_PATTERN, "ids may only contain letters, numbers, _ and -");
+
+/** Position and size as percentages (0-100) of the screen, so it scales with any display size. */
+export const RectSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number(),
+});
+
+export const ConditionOps = ["eq", "neq", "contains", "empty", "notEmpty"] as const;
+export const ConditionSchema = z.object({
+  var: z.string(),
+  op: z.enum(ConditionOps),
+  /** Compared value. May use {{var}} templates. Ignored for empty/notEmpty. */
+  value: z.string().optional(),
+});
+
+export const ActionTypes = ["navigate", "set", "toggle", "message"] as const;
+export const ActionSchema = z.object({
+  type: z.enum(ActionTypes),
+  /** navigate: target screen id */
+  screenId: z.string().optional(),
+  /** set / toggle: variable name */
+  var: z.string().optional(),
+  /** set: new value; message: text. Both may use {{var}} templates. */
+  value: z.string().optional(),
+  /** message: visual tone */
+  tone: z.enum(["info", "success", "error"]).optional(),
+});
+
+/** Evaluated top to bottom when an element is activated; the FIRST rule whose conditions all pass runs. */
+export const RuleSchema = z.object({
+  if: z.array(ConditionSchema).default([]),
+  then: z.array(ActionSchema).default([]),
+});
+
+export const ElementKinds = [
+  "button",
+  "link",
+  "hotspot",
+  "input",
+  "textarea",
+  "select",
+  "checkbox",
+  "text",
+] as const;
+export type ElementKind = (typeof ElementKinds)[number];
+/** Kinds whose value the trainee edits (stored in a variable). */
+export const FIELD_KINDS: ElementKind[] = ["input", "textarea", "select", "checkbox"];
+
+export const ElementSchema = z.object({
+  id,
+  label: z.string(),
+  kind: z.enum(ElementKinds),
+  rect: RectSchema,
+  placeholder: z.string().optional(),
+  /** select: the choices */
+  options: z.array(z.string()).optional(),
+  /** Field kinds store their value in this variable (defaults to the element id). */
+  bindVar: z.string().optional(),
+  /** Only shown when all conditions pass. */
+  visibleIf: z.array(ConditionSchema).optional(),
+  rules: z.array(RuleSchema).default([]),
+});
+
+export const ScreenSchema = z.object({
+  id,
+  name: z.string(),
+  description: z.string().optional(),
+  /** Uploaded screenshot. Without one, elements render as a wireframe UI. */
+  imageAssetId: z.string().nullable().optional(),
+  /** width / height */
+  aspect: z.number().positive().default(16 / 10),
+  elements: z.array(ElementSchema).default([]),
+});
+
+export const VariableSchema = z.object({
+  name: z.string().min(1),
+  initial: z.string().default(""),
+  description: z.string().optional(),
+});
+
+export const ExpectOps = ["any", "eq", "contains"] as const;
+export const StepSchema = z.object({
+  id,
+  instruction: z.string(),
+  hint: z.string().optional(),
+  /** The element the trainee must use for this step. */
+  elementId: z.string(),
+  /** For fields: what the entered value must be. "any" = anything non-empty. */
+  expect: z.enum(ExpectOps).default("any"),
+  value: z.string().optional(),
+});
+
+export const ScenarioSchema = z.object({
+  id,
+  title: z.string(),
+  goal: z.string(),
+  briefing: z.string().optional(),
+  startScreenId: z.string().optional(),
+  /** Overrides for variable initial values in this scenario. */
+  initialVars: z.array(z.object({ name: z.string(), value: z.string() })).default([]),
+  steps: z.array(StepSchema).default([]),
+  /** Optional extra checks on state required to finish (e.g. status = "Resolved"). */
+  successCriteria: z.array(ConditionSchema).default([]),
+});
+
+export const SimulationSchema = z.object({
+  id,
+  title: z.string().min(1),
+  description: z.string().default(""),
+  startScreenId: z.string(),
+  variables: z.array(VariableSchema).default([]),
+  screens: z.array(ScreenSchema).min(1),
+  scenarios: z.array(ScenarioSchema).default([]),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+
+export type Rect = z.infer<typeof RectSchema>;
+export type Condition = z.infer<typeof ConditionSchema>;
+export type Action = z.infer<typeof ActionSchema>;
+export type Rule = z.infer<typeof RuleSchema>;
+export type SimElement = z.infer<typeof ElementSchema>;
+export type Screen = z.infer<typeof ScreenSchema>;
+export type Variable = z.infer<typeof VariableSchema>;
+export type Step = z.infer<typeof StepSchema>;
+export type Scenario = z.infer<typeof ScenarioSchema>;
+export type Simulation = z.infer<typeof SimulationSchema>;
+
+/** A finished Scenario/Guided run, saved for the Results page. */
+export const AttemptSchema = z.object({
+  id,
+  simulationId: z.string(),
+  simulationTitle: z.string(),
+  scenarioId: z.string(),
+  scenarioTitle: z.string(),
+  /** Mode the attempt ended in; `assisted` is true if guided mode was used at any point. */
+  mode: z.enum(["guided", "scenario"]),
+  assisted: z.boolean(),
+  completed: z.boolean(),
+  score: z.number(),
+  errors: z.number(),
+  hintsUsed: z.number(),
+  durationSec: z.number(),
+  stepsCompleted: z.number(),
+  stepsTotal: z.number(),
+  mistakes: z.array(z.string()).default([]),
+  finishedAt: z.string(),
+});
+export type Attempt = z.infer<typeof AttemptSchema>;
+
+export const ASSET_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}\.(png|jpg|webp|gif)$/;
