@@ -396,13 +396,19 @@ export function savePersona(input: unknown): Promise<Persona> {
   });
 }
 
-export async function deletePersona(personaId: string): Promise<void> {
+/** Where a persona appears: "Simulation" (all of it) or "Simulation → Scenario". */
+export async function personaUsage(personaId: string): Promise<string[]> {
   const users: string[] = [];
   for (const summary of await listSimulations()) {
     const sim = await getSimulation(summary.id);
     if (sim.personas.some((l) => l.personaId === personaId)) users.push(sim.title);
     for (const sc of sim.scenarios) if (sc.personaOverrides.some((o) => o.personaId === personaId)) users.push(`${sim.title} → ${sc.title}`);
   }
+  return users;
+}
+
+export async function deletePersona(personaId: string): Promise<void> {
+  const users = await personaUsage(personaId);
   if (users.length) throw new HttpError(409, `This persona is used by: ${users.join("; ")}. Remove it there first.`);
   await updatePersonas((lib) => {
     lib.personas = lib.personas.filter((p) => p.id !== personaId);

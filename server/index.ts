@@ -61,6 +61,7 @@ import {
   deletePersonaTemplate,
   savePersona,
   deletePersona,
+  personaUsage,
 } from "./storage";
 import { buildBundle, exportFileName, importBundle, ImportError } from "./transfer";
 import { adminPinRequired, checkPin, isAdminRequest, requireAdmin } from "./admin";
@@ -276,7 +277,10 @@ app.delete(
   }),
 );
 
-// ---- personas (anyone can read; admins edit)
+// ---- personas
+// Personas are edited by builders like simulations are (no PIN); templates, which define
+// every persona's structure, need admin. A persona is one record: saving it changes it
+// everywhere it's used.
 
 app.get("/api/library/personas", route(async (_req, res) => res.json(await readPersonas())));
 app.put(
@@ -294,17 +298,16 @@ app.delete(
     res.status(204).end();
   }),
 );
+app.get("/api/library/personas/:id/usage", route(async (req, res) => res.json({ uses: await personaUsage(param(req, "id")) })));
 app.put(
   "/api/library/personas/:id",
   route(async (req, res) => {
-    requireAdmin(req);
     res.json(await savePersona({ ...req.body, id: param(req, "id") }));
   }),
 );
 app.delete(
   "/api/library/personas/:id",
   route(async (req, res) => {
-    requireAdmin(req);
     await deletePersona(param(req, "id"));
     res.status(204).end();
   }),
@@ -313,7 +316,6 @@ app.delete(
 app.post(
   "/api/library/personas/draft",
   route(async (req, res) => {
-    requireAdmin(req);
     const description = String(req.body?.description ?? "").trim().slice(0, 4000);
     if (!description) throw new HttpError(400, "Describe the personas you want.");
     const count = Math.min(10, Math.max(1, Number(req.body?.count) || 3));

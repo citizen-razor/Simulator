@@ -88,7 +88,7 @@ export function SimSettings({ sim, taxonomy, schemes, personaLib, update }: {
         <>
           <p className="muted small">
             Assign personas to roles for the whole simulation. Their details fill the screens, e.g. <code>{"{{customer.name}}"}</code>.
-            Each scenario can use a different persona or adjust details in its own panel.
+            Each scenario can use a different persona. A persona is one record: editing it changes it everywhere it's used.
           </p>
           <SimulationPersonas sim={sim} lib={personaLib} onChange={(links) => update((d) => { d.personas = links; }, "persona-links")} />
         </>

@@ -1,6 +1,8 @@
 /**
  * Libraries → Personas: persona templates and the personas built from them, plus AI
- * drafting. Everyone can view; editing needs admin mode.
+ * drafting. Builders create and edit personas freely (like simulations); templates, which
+ * define every persona's structure, need admin mode. A persona is one record: editing it
+ * changes it everywhere it's used.
  */
 import { useEffect, useMemo, useState } from "react";
 import { newId } from "../../shared/engine";
@@ -77,7 +79,7 @@ export function PersonaLibraryPanel({ initialPersonaId }: { initialPersonaId?: s
 
   return (
     <>
-      <AdminBar what="personas" />
+      <AdminBar what="persona templates" />
       <div className="alert warn small">
         🔒 Use invented details only. Don't enter real customers' names, account numbers or other personal information:
         simulations are exported and shared.
@@ -95,13 +97,9 @@ export function PersonaLibraryPanel({ initialPersonaId }: { initialPersonaId?: s
             </button>
           ))}
           {lib.personas.length === 0 && <p className="muted small">No personas yet.</p>}
-          {isAdmin && (
-            <>
-              <button className="link-btn add" onClick={newPersona}>+ New persona</button>
-              {aiAvailable && (
-                <button className={`link-btn add ${sel?.kind === "draft" ? "on" : ""}`} onClick={() => setSel({ kind: "draft" })}>✦ Draft personas with AI</button>
-              )}
-            </>
+          <button className="link-btn add" onClick={newPersona}>+ New persona</button>
+          {aiAvailable && (
+            <button className={`link-btn add ${sel?.kind === "draft" ? "on" : ""}`} onClick={() => setSel({ kind: "draft" })}>✦ Draft personas with AI</button>
           )}
           <h4>Templates</h4>
           {lib.templates.map((t) => (
@@ -119,7 +117,7 @@ export function PersonaLibraryPanel({ initialPersonaId }: { initialPersonaId?: s
               key={persona.id}
               persona={persona}
               lib={lib}
-              readOnly={!isAdmin}
+              readOnly={false}
               onSaved={(p) => load({ kind: "persona", id: p.id })}
               onDeleted={() => load(null)}
               onDuplicate={(p) => {
@@ -161,18 +159,26 @@ function FieldInput({ field, value, onChange, disabled }: { field: Pick<Template
   }
 }
 
-function PersonaEditor({ persona, lib, readOnly, onSaved, onDeleted, onDuplicate }: {
+/**
+ * Edits one persona, the single record used everywhere. Used in Libraries and, embedded,
+ * in the simulation editor (without Duplicate/Delete there).
+ */
+export function PersonaEditor({ persona, lib, readOnly, onSaved, onDeleted, onDuplicate }: {
   persona: Persona;
   lib: PersonaLibrary;
   readOnly: boolean;
   onSaved: (p: Persona) => void;
-  onDeleted: () => void;
-  onDuplicate: (p: Persona) => void;
+  onDeleted?: () => void;
+  onDuplicate?: (p: Persona) => void;
 }) {
   const [draft, setDraft] = useState<Persona>(structuredClone(persona));
   const [saved, setSaved] = useState(JSON.stringify(persona));
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [uses, setUses] = useState<string[] | null>(null);
+  useEffect(() => {
+    api.personaUsage(persona.id).then((r) => setUses(r.uses)).catch(() => setUses(null));
+  }, [persona.id]);
   const tpl = lib.templates.find((t) => t.id === draft.templateId) ?? null;
   const dirty = JSON.stringify(draft) !== saved;
   const set = (patch: Partial<Persona>) => setDraft({ ...draft, ...patch });
@@ -194,9 +200,9 @@ function PersonaEditor({ persona, lib, readOnly, onSaved, onDeleted, onDuplicate
     setError("");
     try {
       await api.deletePersona(draft.id);
-      onDeleted();
+      onDeleted?.();
     } catch (e) {
-      if (/not found/i.test((e as Error).message)) onDeleted();
+      if (/not found/i.test((e as Error).message)) onDeleted?.();
       else setError((e as Error).message);
     }
   };
@@ -206,13 +212,17 @@ function PersonaEditor({ persona, lib, readOnly, onSaved, onDeleted, onDuplicate
       <div className="row tight-top">
         <input className="scheme-name" value={draft.name} disabled={readOnly} aria-label="Persona name" onChange={(e) => set({ name: e.target.value })} />
         <span className="spacer" />
-        {!readOnly && (
-          <>
-            <button className="btn sm ghost" onClick={() => onDuplicate({ ...structuredClone(draft), id: newId("persona"), name: `${draft.name} (copy)` })}>⧉ Duplicate</button>
-            <button className="btn sm ghost danger" onClick={remove}>Delete</button>
-          </>
+        {!readOnly && onDuplicate && (
+          <button className="btn sm ghost" onClick={() => onDuplicate({ ...structuredClone(draft), id: newId("persona"), name: `${draft.name} (copy)` })}>⧉ Duplicate</button>
         )}
+        {!readOnly && onDeleted && <button className="btn sm ghost danger" onClick={remove}>Delete</button>}
       </div>
+      {uses && uses.length > 0 && (
+        <p className="persona-usage small">
+          <b>One record, used everywhere:</b> changes apply to every scenario, open-world and guided run that uses {draft.name || "this persona"}:{" "}
+          {uses.join(" · ")}
+        </p>
+      )}
       <label className="field">
         <span>Summary</span>
         <input value={draft.summary} disabled={readOnly} maxLength={300} placeholder="e.g. Café owner disputing a roaming charge; polite but short on time" onChange={(e) => set({ summary: e.target.value })} />

@@ -7,6 +7,7 @@ import { ElementInspector, ExtraVariablesContext, ScenarioInspector, ScreenInspe
 import { personaVariableNames, type PersonaLibrary } from "../../shared/personas";
 import { EditScreen } from "../components/ScreenView";
 import { SimSettings } from "../components/SimSettings";
+import { ReloadPersonasContext } from "../components/PersonaAssignments";
 import type { GradingScheme, Taxonomy } from "../../shared/library";
 import { alignScreen } from "../lib/align";
 import { prepareImage } from "../lib/media";
@@ -451,6 +452,7 @@ export default function Editor({ id }: { id: string }) {
   })();
 
   return (
+    <ReloadPersonasContext.Provider value={() => api.personas().then(setPersonaLib).catch(() => undefined)}>
     <ExtraVariablesContext.Provider value={extraVariables}>
     <div className="editor">
       <div className="editor-bar">
@@ -587,5 +589,6 @@ export default function Editor({ id }: { id: string }) {
       </div>
     </div>
     </ExtraVariablesContext.Provider>
+    </ReloadPersonasContext.Provider>
   );
 }

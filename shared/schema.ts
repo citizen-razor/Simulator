@@ -128,10 +128,16 @@ export const PathSchema = z.object({
 export const MAIN_PATH_ID = "main";
 
 const ROLE = z.string().regex(/^[a-z][a-z0-9_]{0,29}$/, "Roles are lower-case letters, numbers and _");
-/** Field values that replace the persona's own, by field key (or "name"). */
-const PersonaDetails = z.record(z.string(), z.string().max(2000)).optional();
-export const PersonaLinkSchema = z.object({ role: ROLE, personaId: z.string(), details: PersonaDetails });
-export const PersonaOverrideSchema = z.object({ role: ROLE, personaId: z.string().nullable().optional(), details: PersonaDetails });
+/**
+ * A persona is like a real customer record: one source of truth. Simulations and scenarios
+ * choose WHICH persona plays a role; they never change the persona's details. (Older files
+ * may carry a "details" field from an earlier design; it is dropped when they load.)
+ */
+export const PersonaLinkSchema = z.object({ role: ROLE, personaId: z.string() });
+export const PersonaOverrideSchema = z
+  .object({ role: ROLE, personaId: z.string().nullable().optional() })
+  // Older files: an override without a persona only carried detail changes; it now means "same as the simulation".
+  .transform((o) => ({ role: o.role, personaId: o.personaId === undefined ? undefined : o.personaId }));
 export type PersonaLink = z.infer<typeof PersonaLinkSchema>;
 export type PersonaOverride = z.infer<typeof PersonaOverrideSchema>;
 
@@ -156,7 +162,6 @@ export const ScenarioSchema = z.object({
   /**
    * Personas for this scenario, by role. personaId: a persona to use (also for roles only this
    * scenario has); null = no persona for that role here; left out = the simulation's persona.
-   * details: field values changed for this scenario only (by field key, or "name").
    */
   personaOverrides: z.array(PersonaOverrideSchema).default([]),
 });
@@ -179,10 +184,7 @@ export const SimulationSchema = z.object({
   scenarios: z.array(ScenarioSchema).default([]),
   /** Tag ids from the topic/tag library. */
   tagIds: z.array(z.string()).default([]),
-  /**
-   * Personas from the persona library, by role (e.g. "customer"). Their details become
-   * {{role.field}} variables. details: field values changed for this simulation only.
-   */
+  /** Personas from the persona library, by role (e.g. "customer"). Their details become {{role.field}} variables. */
   personas: z.array(PersonaLinkSchema).default([]),
   /** Random value generators for variables, applied at the start of every run (see shared/random.ts). */
   randomData: z.array(RandomVarSchema).default([]),

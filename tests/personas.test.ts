@@ -119,44 +119,35 @@ describe("AI persona drafts", () => {
   });
 });
 
-describe("assigning personas to scenarios and adjusting details", () => {
-  const base = () => {
+describe("a persona is one record, used everywhere", () => {
+  it("scenarios choose which persona; the details always come from the persona itself", () => {
     const sim = SimulationSchema.parse(structuredClone(sample));
-    sim.personas = [{ role: "customer", personaId: "p-maya", details: { balance: "300" } }];
-    return sim;
-  };
-
-  it("simulation-level changes apply to every scenario", () => {
-    const v = sessionPersonaVariables(base(), "resolve-printer", library);
-    expect(v["customer.balance"]).toBe("300.00");
-    expect(v["customer.plan"]).toBe("Unlimited"); // untouched fields keep the persona's value
+    sim.personas = [{ role: "customer", personaId: "p-maya" }];
+    sim.scenarios[0].personaOverrides = [{ role: "manager", personaId: "p-tom" }];
+    sim.scenarios[1].personaOverrides = [{ role: "customer", personaId: "p-tom" }];
+    const lib = structuredClone(library);
+    const before = sessionPersonaVariables(sim, "resolve-printer", lib);
+    expect(before["customer.plan"]).toBe("Unlimited");
+    expect(before["manager.name"]).toBe("Tom Reyes");
+    // Change the customer record once…
+    lib.personas[0].values.plan = "Basic";
+    lib.personas[1].name = "Tomás Reyes";
+    // …and every scenario and open world see it.
+    expect(sessionPersonaVariables(sim, "resolve-printer", lib)["customer.plan"]).toBe("Basic");
+    expect(sessionPersonaVariables(sim, null, lib)["customer.plan"]).toBe("Basic");
+    expect(sessionPersonaVariables(sim, "resolve-printer", lib)["manager.name"]).toBe("Tomás Reyes");
+    expect(sessionPersonaVariables(sim, "log-vpn", lib)["customer.name"]).toBe("Tomás Reyes");
   });
 
-  it("a scenario can adjust details of the simulation's persona, on top of the simulation's changes", () => {
-    const sim = base();
-    sim.scenarios[0].personaOverrides = [{ role: "customer", details: { plan: "Basic", name: "Maya O." } }];
+  it("drops per-simulation and per-scenario detail changes saved by the earlier design", () => {
+    const raw = structuredClone(sample) as Record<string, unknown>;
+    raw.personas = [{ role: "customer", personaId: "p-maya", details: { plan: "Basic" } }];
+    (raw.scenarios as Record<string, unknown>[])[0].personaOverrides = [{ role: "customer", details: { name: "Someone else" } }];
+    const sim = SimulationSchema.parse(raw);
+    expect(sim.personas).toEqual([{ role: "customer", personaId: "p-maya" }]);
+    expect(sim.scenarios[0].personaOverrides).toEqual([{ role: "customer", personaId: undefined }]);
     const v = sessionPersonaVariables(sim, "resolve-printer", library);
-    expect(v).toMatchObject({ "customer.name": "Maya O.", "customer.plan": "Basic", "customer.balance": "300.00", "customer.accountNumber": "TEL-55120" });
-    expect(sessionPersonaVariables(sim, "log-vpn", library)["customer.plan"]).toBe("Unlimited"); // other scenarios unaffected
-  });
-
-  it("a scenario can use its own persona (dropping the simulation's changes) or add roles only it has", () => {
-    const sim = base();
-    sim.scenarios[0].personaOverrides = [
-      { role: "customer", personaId: "p-tom", details: { plan: "Basic" } },
-      { role: "manager", personaId: "p-maya" },
-    ];
-    const v = sessionPersonaVariables(sim, "resolve-printer", library);
-    expect(v["customer.name"]).toBe("Tom Reyes");
-    expect(v["customer.balance"]).toBe(""); // Tom has no balance, and the simulation's 300 doesn't carry over
-    expect(v["customer.plan"]).toBe("Basic");
-    expect(v["manager.name"]).toBe("Maya Okonkwo");
-  });
-
-  it("the library persona itself is never changed", () => {
-    const sim = base();
-    sim.scenarios[0].personaOverrides = [{ role: "customer", details: { plan: "Basic" } }];
-    sessionPersonaVariables(sim, "resolve-printer", library);
-    expect(library.personas[0].values.plan).toBe("Unlimited");
+    expect(v["customer.plan"]).toBe("Unlimited");
+    expect(v["customer.name"]).toBe("Maya Okonkwo");
   });
 });

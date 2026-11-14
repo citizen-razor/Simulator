@@ -137,10 +137,11 @@ admin mode (below); everyone can view them.
   - **Assign personas** to roles (usually `customer`) for the whole simulation in ⚙ Settings,
     or in a scenario's **Personas in this scenario** section. A scenario can keep the
     simulation's persona, use a different one, have none, or add roles only it has.
-  - **Adjust details** next to any assigned persona to change values (a balance, a plan, the
-    name) for just that simulation or scenario. The shared persona in the library is never
-    changed. Builders don't need admin mode for this. Use **Edit in library ↗** to change
-    the persona everywhere (admin).
+  - **A persona is one record, like a real customer.** Editing it changes it everywhere it's
+    used: every scenario, open-world and guided run. Builders can edit personas from
+    Libraries, or with **✎ Edit persona** right inside the simulation editor; the editor
+    lists every simulation and scenario a change will affect. No admin mode is needed for
+    personas. Persona *templates* (the fields and tables every persona has) need admin.
   - Their details then appear on screens as
     `{{customer.name}}`, `{{customer.balance}}` or `{{customer.bills.1.amount}}`. A
     **table** element shows a whole record table, e.g. `customer.bills`.

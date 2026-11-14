@@ -72,9 +72,10 @@ Nothing right now.
   account details and records, AI drafting from a description, roles per simulation with
   scenario overrides, `{{customer.field}}` variables, a "table" element, carried through
   export/import, and deletion guards
-- ✅ Personas per scenario: assign any persona to a scenario (including scenario-only roles),
-  and adjust a persona's details for one simulation or scenario without changing the
-  library (no admin needed); "Edit in library" link
+- ✅ Personas per scenario: assign any persona to a scenario (including scenario-only roles).
+  Decided: a persona is one record like a real customer; edits always apply everywhere it's
+  used (no per-simulation or per-scenario detail overrides). Builders edit personas in place
+  from the simulation editor, with a list of everything a change affects; templates stay admin
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

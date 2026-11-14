@@ -440,10 +440,7 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .edit-el.kind-table { border-color: rgba(156, 54, 181, 0.8); background: rgba(156, 54, 181, 0.08); }
 .persona-assignments .criterion { margin-bottom: 8px; }
 .persona-preview { margin: 6px 0 2px; display: flex; flex-direction: column; gap: 2px; }
-.persona-details { margin-top: 6px; }
-.persona-details summary { cursor: pointer; color: var(--accent); display: flex; gap: 6px; align-items: center; }
-.details-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0 10px; margin-top: 6px; }
-.details-grid .field { margin-bottom: 8px; }
-.details-grid .field > span { font-size: 12px; display: flex; justify-content: space-between; }
-.details-grid .field input, .details-grid .field select, .details-grid .field textarea { width: 100%; font-size: 13px; }
-.details-grid .field.changed input, .details-grid .field.changed select, .details-grid .field.changed textarea { border-color: var(--accent); background: var(--accent-soft); }
+.persona-usage { background: var(--accent-soft); border-radius: 6px; padding: 6px 10px; margin: 6px 0 10px; }
+.embedded-persona { border: 1px solid var(--accent); border-radius: 8px; padding: 10px; margin: 8px 0; background: var(--surface); }
+.embedded-persona .scheme-name { font-size: 15px; }
+.embedded-persona .field-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }

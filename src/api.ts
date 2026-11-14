@@ -71,6 +71,7 @@ export const api = {
   savePersonaTemplate: (t: PersonaTemplate) => request<PersonaTemplate>("PUT", `/api/library/personas/templates/${encodeURIComponent(t.id)}`, t),
   deletePersonaTemplate: (id: string) => request<void>("DELETE", `/api/library/personas/templates/${encodeURIComponent(id)}`),
   savePersona: (p: Persona) => request<Persona>("PUT", `/api/library/personas/${encodeURIComponent(p.id)}`, p),
+  personaUsage: (id: string) => request<{ uses: string[] }>("GET", `/api/library/personas/${encodeURIComponent(id)}/usage`),
   deletePersona: (id: string) => request<void>("DELETE", `/api/library/personas/${encodeURIComponent(id)}`),
   draftPersonas: (body: { description: string; count: number; templateId: string | null }) =>
     request<{ personas: Persona[] }>("POST", "/api/library/personas/draft", body),
