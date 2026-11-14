@@ -22,7 +22,7 @@ const attempt = (p: Partial<Attempt>): Attempt => ({
   pathName: "",
   passed: true,
   mistakes: [],
-  troubleSteps: [],
+  troubleSteps: [], penalties: [],
   finishedAt: "2026-11-10T10:00:00Z",
   grading: { schemeId: "standard", schemeName: "Standard", passScore: 60, masteryScore: 80, pointsScore: 90, rubricWeight: 0, rubric: [], overtimeSec: 0 },
   ...p,

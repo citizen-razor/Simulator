@@ -2,7 +2,7 @@
  * Admin-managed libraries that simulations draw on:
  *   #/libraries/tags     topics and the tags inside them
  *   #/libraries/grading  grading schemes (points rules, rubric, open-world objectives)
- * Everyone can view; editing is for the Admin-Builder (see AdminBar).
+ * Builders can view (to pick tags, personas and schemes); only Admin-Builders can edit.
  */
 import { useEffect, useState } from "react";
 import { newId } from "../../shared/engine";
@@ -17,12 +17,12 @@ import {
   type Taxonomy,
 } from "../../shared/library";
 import { api } from "../api";
-import { AdminBar } from "../components/AdminGate";
 import { useAdmin } from "../lib/admin";
 import { PersonaLibraryPanel } from "./PersonaLibrary";
 
 export default function Libraries({ tab, personaId }: { tab?: string; personaId?: string }) {
-  const current = tab === "grading" || tab === "storage" || tab === "personas" ? tab : "tags";
+  const { isAdmin } = useAdmin();
+  const current = tab === "grading" || (tab === "storage" && isAdmin) || tab === "personas" ? tab : "tags";
   return (
     <div className="page">
       <div className="page-head">
@@ -35,7 +35,7 @@ export default function Libraries({ tab, personaId }: { tab?: string; personaId?
         <a role="tab" aria-selected={current === "tags"} className={current === "tags" ? "on" : ""} href="#/libraries/tags">Topics & tags</a>
         <a role="tab" aria-selected={current === "personas"} className={current === "personas" ? "on" : ""} href="#/libraries/personas">Personas</a>
         <a role="tab" aria-selected={current === "grading"} className={current === "grading" ? "on" : ""} href="#/libraries/grading">Grading schemes</a>
-        <a role="tab" aria-selected={current === "storage"} className={current === "storage" ? "on" : ""} href="#/libraries/storage">Storage</a>
+        {isAdmin && <a role="tab" aria-selected={current === "storage"} className={current === "storage" ? "on" : ""} href="#/libraries/storage">Storage</a>}
       </div>
       {current === "tags" ? <TaxonomyEditor /> : current === "personas" ? <PersonaLibraryPanel initialPersonaId={personaId} /> : current === "grading" ? <GradingEditor /> : <StoragePanel />}
     </div>
@@ -82,7 +82,6 @@ function TaxonomyEditor() {
 
   return (
     <>
-      <AdminBar what="topics and tags" />
       <p className="muted small">
         Topics group related tags, e.g. topic "Customer service" with tags "Refunds" and "Escalation". Authors tag simulations in the
         editor's Settings; the Library can be filtered by topic or tag, and Progress shows mastery per topic.
@@ -271,7 +270,6 @@ function GradingEditor() {
 
   return (
     <>
-      <AdminBar what="grading schemes" />
       <div className="lib-grid">
         <aside className="lib-list">
           {schemes.map((s) => (
@@ -414,10 +412,7 @@ function StoragePanel() {
 
   return (
     <>
-      <AdminBar what="storage" />
-      {ready && !isAdmin ? (
-        <p className="muted">Unlock as Admin-Builder to see storage.</p>
-      ) : !usage ? (
+      {ready && !isAdmin ? null : !usage ? (
         <p className="muted">{error || "Loading…"}</p>
       ) : (
         <section className="panel storage">

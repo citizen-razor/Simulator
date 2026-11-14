@@ -1,5 +1,6 @@
 import { signOut, useAuth } from "./lib/auth";
 import { useRoute } from "./router";
+import { Redirect } from "./components/Redirect";
 import Assignments from "./pages/Assignments";
 import Create from "./pages/Create";
 import Editor from "./pages/Editor";
@@ -41,7 +42,7 @@ export default function App() {
     performance: auth.isBuilder,
     assignments: canSeeOthers,
     results: canSeeOthers,
-    libraries: true, // view-only unless Admin-Builder
+    libraries: auth.isBuilder, // Builders view; only Admin-Builders edit
     people: auth.isAdmin,
   };
   const full = page === "play" || page === "edit";
@@ -75,7 +76,8 @@ export default function App() {
       </header>
       <main>
         {allowed[page ?? ""] === false ? (
-          <div className="page"><div className="empty"><p>You don't have access to this page.</p><a href="#/">Back to the library</a></div></div>
+          // No "access denied" pages: anything you can't use is hidden, and a stale link just goes home.
+          <Redirect to="#/" />
         ) : page === "new" ? (
           <Create />
         ) : page === "edit" && id ? (
@@ -107,3 +109,4 @@ export default function App() {
     </div>
   );
 }
+

@@ -6,7 +6,7 @@ let n = 0;
 const at = (userId: string | undefined, scenarioId: string, score: number, p: Partial<Attempt> = {}): Attempt => ({
   id: `a${++n}`, userId, trainee: p.trainee ?? "", simulationId: "sim", simulationTitle: "Sim", scenarioId, scenarioTitle: scenarioId,
   mode: "scenario", assisted: false, completed: true, score, errors: 0, hintsUsed: 0, durationSec: 100, stepsCompleted: 5,
-  stepsTotal: 5, pathName: "", passed: true, mistakes: [], troubleSteps: [], finishedAt: `2026-11-${10 + (n % 9)}T00:00:00Z`, ...p,
+  stepsTotal: 5, pathName: "", passed: true, mistakes: [], troubleSteps: [], penalties: [], finishedAt: `2026-11-${10 + (n % 9)}T00:00:00Z`, ...p,
 });
 const people = [{ id: "ana", name: "Ana" }, { id: "ben", name: "Ben" }, { id: "cai", name: "Cai" }, { id: "dee", name: "Dee" }];
 

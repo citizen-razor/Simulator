@@ -26,6 +26,8 @@ import { STANDARD_SCHEME, type GradingScheme } from "../../shared/library";
 import { sessionPersonaVariables, type PersonaLibrary } from "../../shared/personas";
 import { meetsRequirement, REQUIREMENT_TEXT, type Assignment } from "../../shared/assignments";
 import { useAuth } from "../lib/auth";
+import { PointsFlow, stepTitles } from "../components/PointsFlow";
+import { breakdown } from "../../shared/breakdown";
 
 const MODES: { id: Mode; label: string; blurb: string }[] = [
   { id: "open", label: "Open world", blurb: "Explore freely. Nothing is scored." },
@@ -149,6 +151,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
         pathName: sc.alternatePaths.length ? result.pathName : "",
         mistakes: s.mistakes,
         troubleSteps: s.troubleSteps,
+        penalties: s.penalties,
         data: Object.keys(s.generated).length ? s.generated : undefined,
         seed: Object.keys(s.generated).length ? s.seed : undefined,
         finishedAt: new Date().toISOString(),
@@ -445,16 +448,25 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                 <a href="#/my">My training</a>
               </p>
             )}
-            {summary.grade.rubric.length > 0 && (
-              <ul className="checklist rubric-result">
-                {summary.grade.rubric.map((c) => (
-                  <li key={c.id} className={c.met === true ? "met" : c.met === false ? "missed" : "pending"}>
-                    <span aria-hidden>{c.met === true ? "✓" : c.met === false ? "✕" : "⏳"}</span> {c.label}
-                    <span className="muted small">{c.met === null ? " (a trainer will mark this)" : ""}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <details className="flow-details" open>
+              <summary>Where your points came from</summary>
+              <PointsFlow
+                compact
+                b={breakdown(
+                  {
+                    score: summary.grade.score,
+                    completed: summary.completed,
+                    errors: session.errors,
+                    hintsUsed: session.hintsUsed,
+                    stepsCompleted: score.stepsCompleted,
+                    stepsTotal: score.stepsTotal,
+                    grading: summary.grade,
+                    penalties: session.penalties,
+                  },
+                  stepTitles(sim, scenario.id, score.pathName, session.vars),
+                )}
+              />
+            </details>
             <p className="muted">
               {score.stepsCompleted} of {score.stepsTotal} steps · {session.errors} error{session.errors === 1 ? "" : "s"} · {session.hintsUsed} hint
               {session.hintsUsed === 1 ? "" : "s"} · {formatTime(summary.durationSec)}

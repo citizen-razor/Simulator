@@ -8,6 +8,7 @@
  * (among attempts where it has been decided; trainer-marked ones awaiting marking are
  * counted separately).
  */
+import { breakdown, stepTitles, stepsRecorded, type FlowLine } from "./breakdown";
 import { isSolo, masteryMark } from "./progress";
 import type { Attempt, Simulation } from "./schema";
 
@@ -42,6 +43,30 @@ export interface CriterionStats {
   avgPointsEarned: number | null;
 }
 
+/** One line of the average points flow: per attempt, in points of the final score. */
+export interface FlowAverage {
+  key: string;
+  kind: FlowLine["kind"];
+  label: string;
+  stepNo?: number;
+  avgGained: number;
+  avgLost: number;
+  avgMissed: number;
+  /** Share of attempts that lost points (or missed them) on this line (0–1). */
+  lostShare: number;
+  errors: number;
+  hints: number;
+}
+
+export interface PointsFlowAverage {
+  /** Attempts the averages are based on (those that recorded the step of every error and hint). */
+  basedOn: number;
+  steps: FlowAverage[];
+  adjustments: FlowAverage[];
+  rubric: FlowAverage[];
+  avgScore: number | null;
+}
+
 export interface ScenarioAnalysis {
   scenarioId: string;
   title: string;
@@ -59,6 +84,8 @@ export interface ScenarioAnalysis {
   rubricWeight: number | null;
   avgPointsScore: number | null;
   rubric: CriterionStats[];
+  /** Where points are gained and lost along the scenario, on average. */
+  flow: PointsFlowAverage;
 }
 
 export interface SimulationAnalysis {
@@ -163,6 +190,55 @@ export function analyzeScenario(sim: Pick<Simulation, "scenarios">, scenarioId: 
     rubricWeight: withRubric.length ? round1(mean(withRubric.map((a) => a.grading!.rubricWeight))) : null,
     avgPointsScore: withRubric.length ? round1(mean(withRubric.map((a) => a.grading!.pointsScore))) : null,
     rubric: rubricStats(mine),
+    flow: flowAverage(sim, scenarioId, mine),
+  };
+}
+
+/** Average each breakdown line across attempts, grouped by step text (paths can differ) or line type. */
+export function flowAverage(sim: Pick<Simulation, "scenarios">, scenarioId: string, attempts: Attempt[]): PointsFlowAverage {
+  const used = attempts.filter(stepsRecorded);
+  const groups = new Map<string, { line: FlowLine; order: number; gained: number; lost: number; missed: number; hit: number; errors: number; hints: number }>();
+  const add = (section: string, l: FlowLine, order: number) => {
+    const key = `${section}:${l.kind === "step" ? l.label : l.kind === "criterion" ? l.key : l.kind}`;
+    const g = groups.get(key) ?? { line: l, order, gained: 0, lost: 0, missed: 0, hit: 0, errors: 0, hints: 0 };
+    g.order = Math.min(g.order, order);
+    g.gained += l.gained;
+    g.lost += l.lost;
+    g.missed += l.missed;
+    if (l.lost > 0 || l.missed > 0) g.hit++;
+    g.errors += l.errors ?? 0;
+    g.hints += l.hints ?? 0;
+    groups.set(key, g);
+  };
+  for (const a of used) {
+    const b = breakdown(a, stepTitles(sim, scenarioId, a.pathName));
+    b.steps.forEach((l) => add("steps", l, l.stepNo ?? 0));
+    b.adjustments.forEach((l, i) => add("adjustments", l, i));
+    b.rubric.forEach((l, i) => add("rubric", l, i));
+  }
+  const n = used.length || 1;
+  const out = (section: string) =>
+    [...groups.entries()]
+      .filter(([k]) => k.startsWith(`${section}:`))
+      .sort((x, y) => x[1].order - y[1].order)
+      .map(([key, g]) => ({
+        key,
+        kind: g.line.kind,
+        label: g.line.label,
+        stepNo: g.line.kind === "step" ? g.order : undefined,
+        avgGained: Math.round((g.gained / n) * 10) / 10,
+        avgLost: Math.round((g.lost / n) * 10) / 10,
+        avgMissed: Math.round((g.missed / n) * 10) / 10,
+        lostShare: g.hit / n,
+        errors: g.errors,
+        hints: g.hints,
+      }));
+  return {
+    basedOn: used.length,
+    steps: out("steps"),
+    adjustments: out("adjustments"),
+    rubric: out("rubric"),
+    avgScore: used.length ? Math.round((used.reduce((s, a) => s + a.score, 0) / used.length) * 10) / 10 : null,
   };
 }
 

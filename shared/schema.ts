@@ -217,6 +217,13 @@ export const stepTargets = (st: Step): string[] => [st.elementId, ...(st.alsoEle
 export type Simulation = z.infer<typeof SimulationSchema>;
 
 /** A finished Scenario/Guided run, saved for the Results page. */
+export const PenaltyEventSchema = z.object({
+  kind: z.enum(["error", "hint"]),
+  stepNo: z.number().int().min(1),
+  step: z.string(),
+});
+export type PenaltyEvent = z.infer<typeof PenaltyEventSchema>;
+
 export const AttemptSchema = z.object({
   id,
   /** Who made the attempt: their account, and their name at the time (older attempts have only a typed name). */
@@ -241,6 +248,8 @@ export const AttemptSchema = z.object({
   mistakes: z.array(z.string()).default([]),
   /** Step instruction for each error or hint, used to find where a trainee struggles. */
   troubleSteps: z.array(z.string()).default([]),
+  /** Each error and hint in order, with the step (1-based, on the path taken) it happened on. */
+  penalties: z.array(PenaltyEventSchema).default([]),
   /** Grading details (absent on attempts saved before the grading library existed). */
   grading: z
     .object({
@@ -262,7 +271,16 @@ export const AttemptSchema = z.object({
       ),
       overtimeSec: z.number().default(0),
       /** Points lost to each penalty (absent on attempts saved before this was recorded). */
-      pointsLost: z.object({ errors: z.number(), hints: z.number(), overtime: z.number() }).optional(),
+      pointsLost: z
+        .object({
+          errors: z.number(),
+          hints: z.number(),
+          overtime: z.number(),
+          /** The scheme's penalty per error and per hint when this was graded. */
+          perError: z.number().optional(),
+          perHint: z.number().optional(),
+        })
+        .optional(),
     })
     .optional(),
   /** Random values this run used, and the seed that produced them. */

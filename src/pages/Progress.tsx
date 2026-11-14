@@ -5,7 +5,7 @@
  * trainee's status per scenario, score trends, and the steps they struggle with.
  * All figures come from saved attempts (see shared/progress.ts for the definitions).
  */
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { MASTERY_SCORE, summarizeTrainee, topicProgress, type ScenarioStatus } from "../../shared/progress";
 import type { Taxonomy } from "../../shared/library";
 import { assignmentStatus, byUrgency, localToday, type Assignment } from "../../shared/assignments";
@@ -16,6 +16,8 @@ import { AssignmentBadge, dueText, REQUIREMENT_SHORT } from "../components/Assig
 import type { Attempt } from "../../shared/schema";
 import { api } from "../api";
 import { ScoreTrend } from "../components/ScoreTrend";
+import { AttemptPointsFlow } from "../components/PointsFlow";
+import { Redirect } from "../components/Redirect";
 
 const STATUS: Record<ScenarioStatus, { icon: string; label: string; cls: string; help: string }> = {
   mastered: { icon: "✓", label: "Mastered", cls: "good", help: "Completed on their own, at or above the grading scheme's mastery mark" },
@@ -62,7 +64,7 @@ export default function Progress({ userId }: { userId?: string }) {
 
   if (userId) {
     if (!canView({ id: auth.user.id, roles: auth.roles }, directory, userId)) {
-      return <div className="page"><div className="empty"><p>You can only see your own progress{auth.isLeader ? " and your team's" : ""}.</p><a href={`#/progress/${auth.user.id}`}>My progress</a></div></div>;
+      return <Redirect to={`#/progress/${auth.user.id}`} />;
     }
     return (
       <TraineeDetail
@@ -72,9 +74,11 @@ export default function Progress({ userId }: { userId?: string }) {
         simTags={simTags}
         taxonomy={taxonomy}
         assignments={keyedAssignments.filter((a) => a.trainee === userId)}
+        canSeeOthers={auth.isAdmin || auth.isLeader}
       />
     );
   }
+  if (!auth.isAdmin && !auth.isLeader) return <Redirect to={`#/progress/${auth.user.id}`} />;
   const team = auth.isAdmin
     ? directory.filter((p) => p.active && p.id !== auth.user!.id)
     : directory.filter((p) => reportingTree(directory, auth.user!.id).has(p.id));
@@ -144,7 +148,7 @@ function Overview({ people, attempts, assignments, isAdmin, myId }: { people: Di
   );
 }
 
-function TraineeDetail({ name, displayName, attempts, simTags, taxonomy, assignments }: {
+function TraineeDetail({ name, displayName, attempts, simTags, taxonomy, assignments, canSeeOthers }: {
   /** The person's account id (attempts are keyed by it). */
   name: string;
   displayName: string;
@@ -152,8 +156,11 @@ function TraineeDetail({ name, displayName, attempts, simTags, taxonomy, assignm
   simTags: Record<string, string[]>;
   taxonomy: Taxonomy;
   assignments: Assignment[];
+  /** Leaders and Admin-Builders get links back to everyone and to Results. */
+  canSeeOthers: boolean;
 }) {
   const today = localToday();
+  const [open, setOpen] = useState<string | null>(null);
   const assigned = useMemo(
     () => assignments.map((assignment) => ({ assignment, status: assignmentStatus(assignment, attempts, today) })).sort(byUrgency),
     [assignments, attempts, today],
@@ -167,7 +174,7 @@ function TraineeDetail({ name, displayName, attempts, simTags, taxonomy, assignm
   if (t.attempts === 0) {
     return (
       <div className="page">
-        <a href="#/progress">← All trainees</a>
+        {canSeeOthers && <a href="#/progress">← All trainees</a>}
         <div className="empty"><p>{displayName} hasn't attempted any scenarios yet.</p></div>
       </div>
     );
@@ -175,7 +182,7 @@ function TraineeDetail({ name, displayName, attempts, simTags, taxonomy, assignm
   const guided = attempts.filter((a) => a.trainee === name && (a.mode === "guided" || a.assisted)).length;
   return (
     <div className="page">
-      <a href="#/progress">← All trainees</a>
+      {canSeeOthers && <a href="#/progress">← All trainees</a>}
       <h1 className="trainee-name">{displayName}</h1>
       <p className="muted">Last active {fmtDate(t.lastActive)}</p>
 
@@ -270,21 +277,29 @@ function TraineeDetail({ name, displayName, attempts, simTags, taxonomy, assignm
       )}
 
       <h2 className="section">Recent attempts</h2>
+      <p className="muted small">Click an attempt to see where its points were gained and lost.</p>
       <table className="results-table">
         <thead><tr><th>When</th><th>Scenario</th><th>Mode</th><th>Result</th><th>Score</th></tr></thead>
         <tbody>
           {recent.map((a) => (
-            <tr key={a.id}>
-              <td>{new Date(a.finishedAt).toLocaleString()}</td>
-              <td>{a.scenarioTitle}{a.pathName && <span className="muted small"> · {a.pathName}</span>}</td>
-              <td>{a.mode}{a.assisted && a.mode === "scenario" ? " (assisted)" : ""}</td>
-              <td>{a.completed ? "✓ Completed" : `${a.stepsCompleted}/${a.stepsTotal} steps`}</td>
-              <td><b>{a.score}</b></td>
-            </tr>
+            <Fragment key={a.id}>
+              <tr className="clickable" onClick={() => setOpen(open === a.id ? null : a.id)} aria-expanded={open === a.id}>
+                <td>{new Date(a.finishedAt).toLocaleString()}</td>
+                <td>{a.scenarioTitle}{a.pathName && <span className="muted small"> · {a.pathName}</span>}</td>
+                <td>{a.mode}{a.assisted && a.mode === "scenario" ? " (assisted)" : ""}</td>
+                <td>{a.completed ? "✓ Completed" : `${a.stepsCompleted}/${a.stepsTotal} steps`}</td>
+                <td><b>{a.score}</b> <span className="muted small">{open === a.id ? "▾" : "▸"}</span></td>
+              </tr>
+              {open === a.id && (
+                <tr className="detail">
+                  <td colSpan={5}><div className="flow-wrap"><AttemptPointsFlow attempt={a} /></div></td>
+                </tr>
+              )}
+            </Fragment>
           ))}
         </tbody>
       </table>
-      <p className="muted small"><a href="#/results">All results</a></p>
+      {canSeeOthers && <p className="muted small"><a href="#/results">All results</a></p>}
     </div>
   );
 }

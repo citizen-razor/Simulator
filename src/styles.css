@@ -492,3 +492,30 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .count-list li { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; }
 .count-list .meter { width: 80px; }
 .count-label { overflow-wrap: anywhere; }
+
+/* Points flow: where points were gained and lost */
+.points-flow h4 { margin-top: 12px; }
+.flow { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.flow-line { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.flow-line:last-child { border-bottom: 0; }
+.flow-icon { text-align: center; color: var(--muted); }
+.flow-line.met .flow-icon { color: var(--success); }
+.flow-line.missed .flow-icon { color: var(--error); }
+.flow-line.pending .flow-icon { color: var(--warn); }
+.flow-label { overflow-wrap: anywhere; }
+.flow-pts { display: flex; gap: 10px; justify-content: flex-end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pts-gain { color: var(--text); font-weight: 600; }
+.pts-loss { color: var(--error); font-weight: 600; }
+.pts-loss small { font-weight: 400; color: var(--muted); }
+.pts-missed { color: var(--muted); }
+.flow-total { display: flex; justify-content: space-between; border-top: 2px solid var(--border); margin: 6px 0 0; padding-top: 6px; }
+.flow-details { margin: 12px 0; }
+.flow-details > summary { cursor: pointer; font-weight: 600; }
+@media (max-width: 520px) { .flow-pts small { display: none; } }
+.flow-wrap { max-width: 640px; margin: 8px 0; }
+:root { --loss: #c2410c; }
+@media (prefers-color-scheme: dark) { :root { --loss: #fb923c; } }
+.meter.loss > span { background: var(--loss); }
+.flow-table td { font-variant-numeric: tabular-nums; }
+.flow-table tfoot td { background: var(--surface); }
+.pts-pending { color: var(--warn); }

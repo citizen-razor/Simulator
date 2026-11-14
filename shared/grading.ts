@@ -145,6 +145,8 @@ export function gradeSession(sim: Simulation, state: SessionState, scheme: Gradi
       errors: state.errors * scheme.points.errorPenalty,
       hints: state.hintsUsed * scheme.points.hintPenalty,
       overtime: overtimePenalty,
+      perError: scheme.points.errorPenalty,
+      perHint: scheme.points.hintPenalty,
     },
   };
   return { ...grading, ...finalScore(grading, state.completed) };

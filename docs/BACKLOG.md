@@ -95,6 +95,12 @@ Nothing right now.
   mastery rates, score spread, rubric criteria at the point level (worth, met rate, average
   earned, awaiting marking), points lost to errors / hints / overtime, trouble steps, where
   unfinished runs stopped, paths taken; Guided runs can be left out. Aggregate only, no names
+- ✅ Points breakdown: every run's score as a step-by-step ledger (points earned per step,
+  errors and hints on the step where they happened, overtime, rubric criteria), on the
+  end-of-run summary, My progress and Results; Builders see the average per step on
+  Performance
+- ✅ No dead ends: things a role can't use are hidden rather than shown locked; links to
+  pages you can't open go back to the Library (or your own progress)
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

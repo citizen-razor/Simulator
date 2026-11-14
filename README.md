@@ -123,7 +123,8 @@ You can also click **Start blank** or **Build manually from N images** to author
 ### Libraries: topics, tags and grading
 
 The **Libraries** page holds shared lists that every simulation can use. Editing them needs
-the Admin-Builder role (see "Accounts, roles and teams" below); everyone can view them.
+the Admin-Builder role (see "Accounts, roles and teams" below); Builders can view them to pick
+tags, personas and schemes. Learners and Leaders don't see the page.
 
 - **Topics & tags:** topics (e.g. "Customer service") contain tags (e.g. "Refunds"). Tag a
   simulation in the editor's ⚙ Settings. You can then filter the Library page by topic or
@@ -247,17 +248,32 @@ learners, so you can see what to improve. It shows totals and averages only and 
   for every simulation, busiest first.
 - **One course** (also from **Performance** on a Library card or in the editor):
   - the headline figures, then for each scenario:
+  - **where points are gained and lost**, step by step in order: the average points each
+    step earns, the average lost there to errors and hints, the share of attempts that lost
+    points there, and over-time penalties;
   - a **score spread** chart;
-  - **how the score is made up**: the points/rubric split, the average points part, and
-    the average points lost to errors, hints and going over time;
   - **rubric criteria at the point level**: what each criterion is worth (points of the final
     100), how often it was met, the average points earned, and how many trainer-marked
     ones are still awaiting marking;
-  - **trouble steps** (where learners made errors or asked for hints), **where unfinished
-    runs stopped**, and which **paths** were taken.
+  - **where unfinished runs stopped**, and which **paths** were taken.
   - Untick **Include Guided runs** to see Scenario mode only.
 
-Points lost per penalty is recorded from now on; older attempts show everything else.
+Attempts saved before this was added didn't record which step each error or hint was on, so they're
+left out of the step-by-step view and counted in everything else.
+
+### Where your points came from
+
+Every scored run comes with a ledger of the score in step order, so learners see how they're
+graded and where to improve. It appears on the end-of-run summary, on **My progress**
+(click an attempt), and on **Results** for Admin-Builders and leaders. All figures are points out of 100:
+- each completed step earns its share of the steps' points (with a 60/40 points/rubric
+  scheme, 7 steps earn 60 ÷ 7 ≈ 8.6 each); steps not reached show as missed;
+- each error or hint shows on the step where it happened, with what it cost;
+- over-time penalties are listed separately, and so is the rule that the steps' part can't go below 0;
+- each rubric criterion shows what it earned or missed; trainer-marked ones awaiting marking
+  show what they're worth.
+
+The lines add up to the score.
 
 ### Trainee progress
 
@@ -343,6 +359,7 @@ server/scim.ts        SCIM 2.0 provisioning (users + managers)
 shared/people.ts      roles, hierarchy, permissions, CSV parsing
 shared/leaderboard.ts leaderboard ranking
 shared/analytics.ts   course performance for builders (aggregate only)
+shared/breakdown.ts   an attempt's score as a step-by-step ledger of points gained and lost
 samples/              the built-in Helpdesk sample
 tests/                engine and AI-conversion tests
 ```

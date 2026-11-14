@@ -130,30 +130,23 @@ function ScenarioSection({ sc }: { sc: ScenarioAnalysis }) {
           <p className="muted small">
             {s.attempts} attempt{s.attempts === 1 ? "" : "s"} by {s.learners} learner{s.learners === 1 ? "" : "s"} · completed {pct(s.completedRate)} · passed {pct(s.passRate)} · mastered {pct(s.masteredRate)} · average {num(s.avgScore)} · median time {dur(s.medianDurationSec)}
           </p>
+          <h4>Where points are gained and lost</h4>
+          <FlowTable sc={sc} />
+
           <div className="perf-grid">
             <div>
               <h4>Score spread</h4>
               <ScoreHistogram bins={sc.scoreBins} />
             </div>
             <div>
-              <h4>How the score is made up</h4>
-              <ScoreMakeup sc={sc} />
+              <h4>Where unfinished runs stopped</h4>
+              <CountList items={sc.stoppedAt.map((t) => ({ label: t.step, count: t.count }))} empty="Every run was finished." unit="run" />
             </div>
           </div>
 
           <h4>Rubric criteria</h4>
           {sc.rubric.length ? <RubricTable sc={sc} /> : <p className="muted small">This scenario's grading scheme has no rubric; the score is points only.</p>}
 
-          <div className="perf-grid">
-            <div>
-              <h4>Trouble steps</h4>
-              <CountList items={sc.troubleSteps.map((t) => ({ label: t.step, count: t.count }))} empty="No errors or hints recorded." unit="attempt" />
-            </div>
-            <div>
-              <h4>Where unfinished runs stopped</h4>
-              <CountList items={sc.stoppedAt.map((t) => ({ label: t.step, count: t.count }))} empty="Every run was finished." unit="run" />
-            </div>
-          </div>
           {sc.paths.length > 0 && (
             <>
               <h4>Paths taken</h4>
@@ -202,32 +195,54 @@ function ScoreHistogram({ bins }: { bins: number[] }) {
   );
 }
 
-function ScoreMakeup({ sc }: { sc: ScenarioAnalysis }) {
-  const lost = sc.pointsLost;
+/** The average points ledger for a scenario, in step order: what each step earns, and what errors and hints there cost. */
+function FlowTable({ sc }: { sc: ScenarioAnalysis }) {
+  const f = sc.flow;
+  if (!f.basedOn) return <p className="muted small">No attempts have recorded their steps yet. New attempts will appear here.</p>;
+  const rows = [...f.steps, ...f.adjustments];
+  const maxGain = Math.max(0.1, ...rows.map((r) => r.avgGained + r.avgMissed));
+  const maxLoss = Math.max(0.1, ...rows.map((r) => r.avgLost));
   return (
-    <dl className="makeup">
-      {sc.rubricWeight !== null && (
-        <>
-          <dt>Split</dt>
-          <dd>{100 - sc.rubricWeight}% points · {sc.rubricWeight}% rubric</dd>
-          <dt>Average points part</dt>
-          <dd>{num(sc.avgPointsScore)} / 100</dd>
-        </>
-      )}
-      {lost ? (
-        <>
-          <dt>Average points lost to errors</dt>
-          <dd>{lost.errors}</dd>
-          <dt>…to hints</dt>
-          <dd>{lost.hints}</dd>
-          <dt>…to going over time</dt>
-          <dd>{lost.overtime}</dd>
-          <dd className="muted small full">Points part, out of 100. Based on {lost.basedOn} attempt{lost.basedOn === 1 ? "" : "s"} (older attempts didn't record this).</dd>
-        </>
-      ) : (
-        <dd className="muted small full">Penalty breakdown appears for attempts saved from now on.</dd>
-      )}
-    </dl>
+    <div className="table-scroll">
+      <table className="results-table flow-table">
+        <thead>
+          <tr>
+            <th>Step</th>
+            <th className="bar-col">Average earned</th>
+            <th className="bar-col">Average lost to penalties</th>
+            <th>Attempts losing points here</th>
+            <th>Errors · hints</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key}>
+              <td>{r.stepNo !== undefined && <span className="muted">{r.stepNo}. </span>}{r.label}</td>
+              <td className="bar-col">
+                <span className="meter" title={`${r.avgGained} earned of ${Math.round((r.avgGained + r.avgMissed) * 10) / 10} on offer`}>
+                  <span style={{ width: `${(r.avgGained / maxGain) * 100}%` }} />
+                </span>
+                <span className="meter-label">{r.kind === "floor" || r.avgGained ? `+${r.avgGained}` : "–"}</span>
+              </td>
+              <td className="bar-col">
+                <span className="meter loss" title={`${r.avgLost} points lost per attempt`}><span style={{ width: `${(r.avgLost / maxLoss) * 100}%` }} /></span>
+                <span className="meter-label">{r.avgLost ? `−${r.avgLost}` : "–"}</span>
+              </td>
+              <td>{r.avgLost || r.kind !== "step" ? `${Math.round(r.lostShare * 100)}%` : "–"}</td>
+              <td>{r.errors || r.hints ? `${r.errors} · ${r.hints}` : "–"}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colSpan={5} className="muted small">
+              Per attempt, in points of the final 100 ({f.basedOn} attempt{f.basedOn === 1 ? "" : "s"}{f.basedOn < sc.stats.attempts ? `; ${sc.stats.attempts - f.basedOn} older ones didn't record their steps` : ""}).
+              "Earned" falls below a step's full share when runs stop before it. Rubric points are in the table below.
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
   );
 }
 

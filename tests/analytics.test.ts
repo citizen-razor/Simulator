@@ -13,7 +13,7 @@ const rubric = (met: (boolean | null)[]) => [
 const at = (p: Partial<Attempt>): Attempt => ({
   id: `a${++n}`, userId: `u${n}`, trainee: "", simulationId: sim.id, simulationTitle: sim.title, scenarioId: "resolve-printer",
   scenarioTitle: "Resolve", mode: "scenario", assisted: false, completed: true, score: 90, errors: 0, hintsUsed: 0, durationSec: 60,
-  stepsCompleted: 7, stepsTotal: 7, pathName: "Main path", passed: true, mistakes: [], troubleSteps: [], finishedAt: "2026-11-14T00:00:00Z",
+  stepsCompleted: 7, stepsTotal: 7, pathName: "Main path", passed: true, mistakes: [], troubleSteps: [], penalties: [], finishedAt: "2026-11-14T00:00:00Z",
   ...p,
 });
 const graded = (met: (boolean | null)[], extra: Partial<Attempt> = {}): Attempt =>
@@ -58,6 +58,22 @@ describe("course performance", () => {
     // Professional notes: 10 points; met 1, not met 1, awaiting 1 → 50% → 5 points on average
     expect(byLabel["Professional notes"]).toMatchObject({ pointsWorth: 10, met: 1, notMet: 1, awaiting: 1, metRate: 0.5, avgPointsEarned: 5, manual: true });
     expect(byLabel["No mistakes"]).toMatchObject({ pointsWorth: 10, metRate: 1 / 3, avgPointsEarned: 3.3 });
+  });
+
+  it("averages where points are gained and lost along the steps", () => {
+    const sim2 = SimulationSchema.parse(sample);
+    const steps = sim2.scenarios.find((s) => s.id === "resolve-printer")!.steps;
+    const runs = [
+      at({ userId: "p1", score: 85, errors: 1, hintsUsed: 1, penalties: [{ kind: "error", stepNo: 5, step: steps[4].instruction }, { kind: "hint", stepNo: 5, step: steps[4].instruction }] }),
+      at({ userId: "p2", score: 100 }),
+      at({ userId: "p3", score: 90, errors: 1, penalties: [] }), // older: step not recorded, left out
+    ];
+    const f = analyzeSimulation(sim2, runs).scenarios.find((s) => s.scenarioId === "resolve-printer")!.flow;
+    expect(f.basedOn).toBe(2);
+    const s5 = f.steps.find((l) => l.stepNo === 5)!;
+    expect(s5).toMatchObject({ label: steps[4].instruction, avgLost: 7.5, lostShare: 0.5, errors: 1, hints: 1 });
+    expect(f.steps).toHaveLength(steps.length);
+    expect(f.steps[0].avgGained).toBeCloseTo(100 / steps.length, 1);
   });
 
   it("can leave out guided runs", () => {

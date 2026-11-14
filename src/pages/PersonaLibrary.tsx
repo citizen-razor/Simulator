@@ -20,7 +20,6 @@ import {
   type TemplateField,
 } from "../../shared/personas";
 import { api } from "../api";
-import { AdminBar } from "../components/AdminGate";
 import { useAdmin } from "../lib/admin";
 
 type Sel = { kind: "persona"; id: string } | { kind: "template"; id: string } | { kind: "draft" } | null;
@@ -78,7 +77,6 @@ export function PersonaLibraryPanel({ initialPersonaId }: { initialPersonaId?: s
 
   return (
     <>
-      <AdminBar what="personas and persona templates" />
       <div className="alert warn small">
         🔒 Use invented details only. Don't enter real customers' names, account numbers or other personal information:
         simulations are exported and shared.

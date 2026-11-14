@@ -22,7 +22,6 @@ import {
 import type { PersonaLink, PersonaOverride, Scenario, Simulation } from "../../shared/schema";
 import { PersonaEditor } from "../pages/PersonaLibrary";
 import { useAdmin } from "../lib/admin";
-import { AdminBar } from "./AdminGate";
 
 /** Lets an embedded persona editor tell the page to reload the persona library after a save. */
 export const ReloadPersonasContext = createContext<() => void>(() => undefined);
@@ -53,7 +52,6 @@ function PersonaCard({ persona, role, template, lib }: { persona: Persona; role:
       </div>
       {editing && (
         <div className="embedded-persona">
-          {!isAdmin && <AdminBar what="personas" />}
           <PersonaEditor key={persona.id} persona={persona} lib={lib} readOnly={!isAdmin} onSaved={() => reload()} />
         </div>
       )}

@@ -33,6 +33,7 @@ import {
   type SimElement,
   type Simulation,
   type Step,
+  type PenaltyEvent,
 } from "./schema";
 import { generateValues, newSeed } from "./random";
 
@@ -69,6 +70,8 @@ export interface SessionState {
   touched: string[];
   /** Instruction of the step the trainee was on each time they made an error or took a hint. */
   troubleSteps: string[];
+  /** Each error and hint with the step it happened on (for the points breakdown). */
+  penalties: PenaltyEvent[];
   /** Seed for this run's random data, and the values it produced. */
   seed: number;
   generated: Record<string, string>;
@@ -203,6 +206,7 @@ export function createSession(
     visited: [start],
     touched: [],
     troubleSteps: [],
+    penalties: [],
     seed,
     generated,
   };
@@ -221,7 +225,15 @@ export function takeHint(sim: Simulation, state: SessionState): { state: Session
   const where =
     target && target.screen.id !== state.screenId ? ` (on the "${target.screen.name}" screen)` : "";
   const hint = interpolate(step.hint || step.instruction, state.vars) + where;
-  return { state: { ...state, hintsUsed: state.hintsUsed + 1, troubleSteps: [...state.troubleSteps, step.instruction] }, hint };
+  return {
+    state: {
+      ...state,
+      hintsUsed: state.hintsUsed + 1,
+      troubleSteps: [...state.troubleSteps, step.instruction],
+      penalties: [...state.penalties, { kind: "hint", stepNo: state.stepIndex + 1, step: step.instruction }],
+    },
+    hint,
+  };
 }
 
 function runActions(actions: Action[], state: SessionState, sim: Simulation, feedback: Feedback[]) {
@@ -346,6 +358,7 @@ export function interact(
         errors: prev.errors + 1,
         mistakes: [...prev.mistakes, mistake],
         troubleSteps: [...prev.troubleSteps, (isTarget ? hintStep! : step).instruction],
+        penalties: [...prev.penalties, { kind: "error" as const, stepNo: prev.stepIndex + 1, step: (isTarget ? hintStep! : step).instruction }],
       };
       if (fieldCommit) {
         // Keep what they typed so the field doesn't reset, but don't advance.
@@ -356,6 +369,7 @@ export function interact(
     } else {
       state.errors++;
       state.troubleSteps = [...state.troubleSteps, (isTarget ? hintStep! : step).instruction];
+      state.penalties = [...state.penalties, { kind: "error", stepNo: prev.stepIndex + 1, step: (isTarget ? hintStep! : step).instruction }];
       state.mistakes = [
         ...state.mistakes,
         isTarget ? `Wrong value in ${describe(el)} (step: ${say(hintStep!.instruction)})` : `Used ${describe(el)} when the step was: ${say(step.instruction)}`,

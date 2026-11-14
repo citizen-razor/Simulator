@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { Attempt } from "../../shared/schema";
+import { AttemptPointsFlow } from "../components/PointsFlow";
 import { api } from "../api";
 import { useAdmin } from "../lib/admin";
-import { AdminBar } from "../components/AdminGate";
 
 const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 
@@ -56,7 +56,6 @@ export default function Results({ simulationId }: { simulationId?: string }) {
         )}
       </div>
       {error && <div className="alert error">{error}</div>}
-      {(attempts ?? []).some((a) => a.grading?.rubric.some((c) => c.manual)) && <AdminBar what="trainer-marked criteria" />}
       {attempts?.length === 0 && <div className="empty"><p>No attempts yet. Play a scenario to see results here.</p></div>}
 
       {byScenario.length > 0 && (
@@ -113,6 +112,7 @@ export default function Results({ simulationId }: { simulationId?: string }) {
                   <tr className="detail">
                     <td colSpan={11}>
                       {a.grading && <RubricDetail attempt={a} onUpdated={(u) => setAttempts((xs) => xs!.map((x) => (x.id === u.id ? u : x)))} />}
+                      <div className="flow-wrap"><AttemptPointsFlow attempt={a} /></div>
                       {a.data && (
                         <p className="small run-data">
                           <b>This run's data:</b>{" "}
@@ -139,7 +139,7 @@ function PassCell({ attempt: a }: { attempt: Attempt }) {
   return a.passed ? <span className="status good">✓ Pass</span> : <span className="status bad">✕ Fail</span>;
 }
 
-/** The attempt's grading breakdown; admins can mark the criteria a trainer has to judge. */
+/** The attempt's scheme, and marking for the criteria a trainer has to judge (Admin-Builders). */
 function RubricDetail({ attempt: a, onUpdated }: { attempt: Attempt; onUpdated: (a: Attempt) => void }) {
   const { isAdmin } = useAdmin();
   const [busy, setBusy] = useState(false);
@@ -156,7 +156,6 @@ function RubricDetail({ attempt: a, onUpdated }: { attempt: Attempt; onUpdated: 
       setBusy(false);
     }
   };
-  const hasManual = g.rubric.some((c) => c.manual);
   return (
     <div className="rubric-detail">
       <p className="small">
@@ -164,13 +163,15 @@ function RubricDetail({ attempt: a, onUpdated }: { attempt: Attempt; onUpdated: 
         {g.rubric.length > 0 && g.rubricWeight > 0 && ` (${100 - g.rubricWeight}%) + rubric (${g.rubricWeight}%)`} · pass mark {g.passScore}
         {g.overtimeSec > 0 && ` · ${fmt(g.overtimeSec)} over time`}
       </p>
-      {g.rubric.length > 0 && (
+      {isAdmin && g.rubric.some((c) => c.manual) && (
+        <>
+        <b className="small">Trainer marking</b>
         <ul className="checklist rubric-result">
-          {g.rubric.map((c) => (
+          {g.rubric.filter((c) => c.manual).map((c) => (
             <li key={c.id} className={c.met === true ? "met" : c.met === false ? "missed" : "pending"}>
               <span aria-hidden>{c.met === true ? "✓" : c.met === false ? "✕" : "⏳"}</span> {c.label}
-              <span className="muted small"> · weight {c.weight}{c.manual ? " · trainer-marked" : " · automatic"}</span>
-              {c.manual && isAdmin && (
+              {(
+
                 <span className="mark-buttons">
                   <button className={`btn sm ${c.met === true ? "primary" : ""}`} disabled={busy} onClick={() => mark(c.id, true)}>Met</button>
                   <button className={`btn sm ${c.met === false ? "danger" : ""}`} disabled={busy} onClick={() => mark(c.id, false)}>Not met</button>
@@ -180,8 +181,8 @@ function RubricDetail({ attempt: a, onUpdated }: { attempt: Attempt; onUpdated: 
             </li>
           ))}
         </ul>
+        </>
       )}
-      {hasManual && !isAdmin && <p className="muted small">Unlock as Admin-Builder (top of this page) to mark trainer-marked criteria.</p>}
       {error && <p className="text-error small">{error}</p>}
     </div>
   );
