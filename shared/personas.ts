@@ -125,25 +125,65 @@ export function parseTableVar(raw: string | undefined): { columns: { key: string
   }
 }
 
+/** The type of a persona field (template field, extra field → text, "name" → text). */
+function fieldType(key: string, template: PersonaTemplate | null): FieldType {
+  return template?.fields.find((f) => f.key === key)?.type ?? "text";
+}
+
+/** What a role resolves to: which persona, and which details are changed. */
+export interface ResolvedRole {
+  role: string;
+  personaId: string;
+  details: Record<string, string>;
+  /** Where the persona comes from: the simulation, or this scenario. */
+  source: "simulation" | "scenario";
+}
+
 /**
- * Variables from the personas linked to a simulation's roles, with the scenario's
- * overrides applied (an override of null removes the role's persona for that scenario).
+ * Work out each role's persona and changed details. A scenario override with a persona
+ * replaces the simulation's (and its detail changes); one without a persona keeps the
+ * simulation's persona and adds its own detail changes on top; personaId null removes it.
  */
+export function resolveRoles(
+  links: { role: string; personaId: string; details?: Record<string, string> }[],
+  overrides: { role: string; personaId?: string | null; details?: Record<string, string> }[],
+): ResolvedRole[] {
+  const out = new Map<string, ResolvedRole | null>();
+  for (const l of links) out.set(l.role, { role: l.role, personaId: l.personaId, details: { ...l.details }, source: "simulation" });
+  for (const o of overrides) {
+    if (o.personaId === null) out.set(o.role, null);
+    else if (o.personaId === undefined) {
+      const base = out.get(o.role);
+      if (base) out.set(o.role, { ...base, details: { ...base.details, ...o.details } });
+    } else out.set(o.role, { role: o.role, personaId: o.personaId, details: { ...o.details }, source: "scenario" });
+  }
+  return [...out.values()].filter((r): r is ResolvedRole => r !== null);
+}
+
+/** Variables for the resolved roles, with changed details applied over the persona's own values. */
 export function resolvePersonaVariables(
-  links: { role: string; personaId: string }[],
-  overrides: { role: string; personaId: string | null }[],
+  links: { role: string; personaId: string; details?: Record<string, string> }[],
+  overrides: { role: string; personaId?: string | null; details?: Record<string, string> }[],
   library: PersonaLibrary,
 ): Record<string, string> {
   const vars: Record<string, string> = {};
-  const roles = new Map(links.map((l) => [l.role, l.personaId as string | null]));
-  for (const o of overrides) roles.set(o.role, o.personaId);
-  for (const [role, personaId] of roles) {
-    const persona = personaId ? library.personas.find((p) => p.id === personaId) : undefined;
+  for (const r of resolveRoles(links, overrides)) {
+    const persona = library.personas.find((p) => p.id === r.personaId);
     if (!persona) continue;
     const template = library.templates.find((t) => t.id === persona.templateId) ?? null;
-    Object.assign(vars, personaVariables(role, persona, template));
+    Object.assign(vars, personaVariables(r.role, persona, template));
+    for (const [key, value] of Object.entries(r.details)) vars[`${r.role}.${key}`] = normalise(value, fieldType(key, template));
   }
   return vars;
+}
+
+/** The fields a builder can adjust for a persona: its name, template fields and extra fields. */
+export function editableFields(persona: Persona, template: PersonaTemplate | null): { key: string; label: string; type: FieldType; options?: string[]; value: string }[] {
+  return [
+    { key: "name", label: "Name", type: "text" as FieldType, value: persona.name },
+    ...(template?.fields ?? []).map((f) => ({ key: f.key, label: f.label, type: f.type, options: f.options, value: persona.values[f.key] ?? "" })),
+    ...persona.extra.map((x) => ({ key: x.key, label: x.label, type: "text" as FieldType, value: x.value })),
+  ];
 }
 
 /** Variable names a role will provide with this persona (for the editor's suggestions). */
@@ -161,7 +201,10 @@ export function formatValue(value: string, type: FieldType): string {
 
 /** Persona variables for a run of this simulation (and scenario, if any). */
 export function sessionPersonaVariables(
-  sim: { personas: { role: string; personaId: string }[]; scenarios: { id: string; personaOverrides: { role: string; personaId: string | null }[] }[] },
+  sim: {
+    personas: { role: string; personaId: string; details?: Record<string, string> }[];
+    scenarios: { id: string; personaOverrides: { role: string; personaId?: string | null; details?: Record<string, string> }[] }[];
+  },
   scenarioId: string | null,
   library: PersonaLibrary,
 ): Record<string, string> {

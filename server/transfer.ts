@@ -99,7 +99,9 @@ export async function buildBundle(
   });
   const schemeIds = new Set([sim.grading.schemeId, ...sim.scenarios.map((s) => s.gradingSchemeId)].filter((x): x is string => !!x));
   const schemes = library.schemes.filter((s) => schemeIds.has(s.id));
-  const personaIds = new Set([...sim.personas.map((p) => p.personaId), ...sim.scenarios.flatMap((sc) => sc.personaOverrides.map((o) => o.personaId))]);
+  const personaIds = new Set(
+    [...sim.personas.map((p) => p.personaId), ...sim.scenarios.flatMap((sc) => sc.personaOverrides.map((o) => o.personaId))].filter((x): x is string => !!x),
+  );
   const personas = (library.personas?.personas ?? []).filter((p) => personaIds.has(p.id));
   const templateIds = new Set(personas.map((p) => p.templateId));
   const personaTemplates = (library.personas?.templates ?? []).filter((t) => templateIds.has(t.id));
@@ -343,7 +345,7 @@ function mapPersonas(sim: Simulation, file: Bundle["library"], opts: ImportOptio
   });
   for (const sc of sim.scenarios) {
     sc.personaOverrides = sc.personaOverrides.flatMap((o) => {
-      if (o.personaId === null) return [o];
+      if (o.personaId === null || o.personaId === undefined) return [o]; // none / same as simulation
       const id = resolve(o.personaId);
       return id ? [{ ...o, personaId: id }] : [];
     });

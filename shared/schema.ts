@@ -127,6 +127,14 @@ export const PathSchema = z.object({
 
 export const MAIN_PATH_ID = "main";
 
+const ROLE = z.string().regex(/^[a-z][a-z0-9_]{0,29}$/, "Roles are lower-case letters, numbers and _");
+/** Field values that replace the persona's own, by field key (or "name"). */
+const PersonaDetails = z.record(z.string(), z.string().max(2000)).optional();
+export const PersonaLinkSchema = z.object({ role: ROLE, personaId: z.string(), details: PersonaDetails });
+export const PersonaOverrideSchema = z.object({ role: ROLE, personaId: z.string().nullable().optional(), details: PersonaDetails });
+export type PersonaLink = z.infer<typeof PersonaLinkSchema>;
+export type PersonaOverride = z.infer<typeof PersonaOverrideSchema>;
+
 export const ScenarioSchema = z.object({
   id,
   title: z.string(),
@@ -145,8 +153,12 @@ export const ScenarioSchema = z.object({
   gradingSchemeId: z.string().nullable().default(null),
   /** Use fresh random values (Simulation.randomData) on each run. Off = always the initial values. */
   randomize: z.boolean().default(true),
-  /** Use a different persona for a role in this scenario (null = no persona for that role). */
-  personaOverrides: z.array(z.object({ role: z.string(), personaId: z.string().nullable() })).default([]),
+  /**
+   * Personas for this scenario, by role. personaId: a persona to use (also for roles only this
+   * scenario has); null = no persona for that role here; left out = the simulation's persona.
+   * details: field values changed for this scenario only (by field key, or "name").
+   */
+  personaOverrides: z.array(PersonaOverrideSchema).default([]),
 });
 
 /** Per-simulation targets for a grading scheme's screen/state checks (see shared/library.ts). */
@@ -167,8 +179,11 @@ export const SimulationSchema = z.object({
   scenarios: z.array(ScenarioSchema).default([]),
   /** Tag ids from the topic/tag library. */
   tagIds: z.array(z.string()).default([]),
-  /** Personas from the persona library, by role (e.g. "customer"). Their details become {{role.field}} variables. */
-  personas: z.array(z.object({ role: z.string().regex(/^[a-z][a-z0-9_]{0,29}$/), personaId: z.string() })).default([]),
+  /**
+   * Personas from the persona library, by role (e.g. "customer"). Their details become
+   * {{role.field}} variables. details: field values changed for this simulation only.
+   */
+  personas: z.array(PersonaLinkSchema).default([]),
   /** Random value generators for variables, applied at the start of every run (see shared/random.ts). */
   randomData: z.array(RandomVarSchema).default([]),
   /** Grading scheme from the grading library (null = Standard), plus per-simulation check targets. */

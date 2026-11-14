@@ -438,3 +438,12 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .sim-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .sim-table-empty { padding: 0.6em; color: #5f6b7a; font-size: 0.85em; }
 .edit-el.kind-table { border-color: rgba(156, 54, 181, 0.8); background: rgba(156, 54, 181, 0.08); }
+.persona-assignments .criterion { margin-bottom: 8px; }
+.persona-preview { margin: 6px 0 2px; display: flex; flex-direction: column; gap: 2px; }
+.persona-details { margin-top: 6px; }
+.persona-details summary { cursor: pointer; color: var(--accent); display: flex; gap: 6px; align-items: center; }
+.details-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0 10px; margin-top: 6px; }
+.details-grid .field { margin-bottom: 8px; }
+.details-grid .field > span { font-size: 12px; display: flex; justify-content: space-between; }
+.details-grid .field input, .details-grid .field select, .details-grid .field textarea { width: 100%; font-size: 13px; }
+.details-grid .field.changed input, .details-grid .field.changed select, .details-grid .field.changed textarea { border-color: var(--accent); background: var(--accent-soft); }

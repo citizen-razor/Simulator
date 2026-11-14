@@ -21,7 +21,7 @@ import { AdminBar } from "../components/AdminGate";
 import { useAdmin } from "../lib/admin";
 import { PersonaLibraryPanel } from "./PersonaLibrary";
 
-export default function Libraries({ tab }: { tab?: string }) {
+export default function Libraries({ tab, personaId }: { tab?: string; personaId?: string }) {
   const current = tab === "grading" || tab === "storage" || tab === "personas" ? tab : "tags";
   return (
     <div className="page">
@@ -37,7 +37,7 @@ export default function Libraries({ tab }: { tab?: string }) {
         <a role="tab" aria-selected={current === "grading"} className={current === "grading" ? "on" : ""} href="#/libraries/grading">Grading schemes</a>
         <a role="tab" aria-selected={current === "storage"} className={current === "storage" ? "on" : ""} href="#/libraries/storage">Storage</a>
       </div>
-      {current === "tags" ? <TaxonomyEditor /> : current === "personas" ? <PersonaLibraryPanel /> : current === "grading" ? <GradingEditor /> : <StoragePanel />}
+      {current === "tags" ? <TaxonomyEditor /> : current === "personas" ? <PersonaLibraryPanel initialPersonaId={personaId} /> : current === "grading" ? <GradingEditor /> : <StoragePanel />}
     </div>
   );
 }

@@ -35,7 +35,7 @@ const TYPE_LABEL: Record<FieldType, string> = {
   choice: "Choice",
 };
 
-export function PersonaLibraryPanel() {
+export function PersonaLibraryPanel({ initialPersonaId }: { initialPersonaId?: string }) {
   const { isAdmin } = useAdmin();
   const [lib, setLib] = useState<PersonaLibrary | null>(null);
   const [sel, setSel] = useState<Sel>(null);
@@ -46,6 +46,7 @@ export function PersonaLibraryPanel() {
     api.personas().then((l) => {
       setLib(l);
       if (select !== undefined) setSel(select);
+      else if (!sel && initialPersonaId && l.personas.some((p) => p.id === initialPersonaId)) setSel({ kind: "persona", id: initialPersonaId });
       else if (!sel) setSel(l.personas[0] ? { kind: "persona", id: l.personas[0].id } : l.templates[0] ? { kind: "template", id: l.templates[0].id } : null);
     }).catch((e) => setError(e.message));
   useEffect(() => {

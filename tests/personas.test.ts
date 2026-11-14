@@ -118,3 +118,45 @@ describe("AI persona drafts", () => {
     expect(out[0].tables).toEqual({ bills: [{ month: "October", amount: "48.10" }] });
   });
 });
+
+describe("assigning personas to scenarios and adjusting details", () => {
+  const base = () => {
+    const sim = SimulationSchema.parse(structuredClone(sample));
+    sim.personas = [{ role: "customer", personaId: "p-maya", details: { balance: "300" } }];
+    return sim;
+  };
+
+  it("simulation-level changes apply to every scenario", () => {
+    const v = sessionPersonaVariables(base(), "resolve-printer", library);
+    expect(v["customer.balance"]).toBe("300.00");
+    expect(v["customer.plan"]).toBe("Unlimited"); // untouched fields keep the persona's value
+  });
+
+  it("a scenario can adjust details of the simulation's persona, on top of the simulation's changes", () => {
+    const sim = base();
+    sim.scenarios[0].personaOverrides = [{ role: "customer", details: { plan: "Basic", name: "Maya O." } }];
+    const v = sessionPersonaVariables(sim, "resolve-printer", library);
+    expect(v).toMatchObject({ "customer.name": "Maya O.", "customer.plan": "Basic", "customer.balance": "300.00", "customer.accountNumber": "TEL-55120" });
+    expect(sessionPersonaVariables(sim, "log-vpn", library)["customer.plan"]).toBe("Unlimited"); // other scenarios unaffected
+  });
+
+  it("a scenario can use its own persona (dropping the simulation's changes) or add roles only it has", () => {
+    const sim = base();
+    sim.scenarios[0].personaOverrides = [
+      { role: "customer", personaId: "p-tom", details: { plan: "Basic" } },
+      { role: "manager", personaId: "p-maya" },
+    ];
+    const v = sessionPersonaVariables(sim, "resolve-printer", library);
+    expect(v["customer.name"]).toBe("Tom Reyes");
+    expect(v["customer.balance"]).toBe(""); // Tom has no balance, and the simulation's 300 doesn't carry over
+    expect(v["customer.plan"]).toBe("Basic");
+    expect(v["manager.name"]).toBe("Maya Okonkwo");
+  });
+
+  it("the library persona itself is never changed", () => {
+    const sim = base();
+    sim.scenarios[0].personaOverrides = [{ role: "customer", details: { plan: "Basic" } }];
+    sessionPersonaVariables(sim, "resolve-printer", library);
+    expect(library.personas[0].values.plan).toBe("Unlimited");
+  });
+});

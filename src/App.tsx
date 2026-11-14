@@ -41,7 +41,7 @@ export default function App() {
         ) : page === "assignments" ? (
           <Assignments />
         ) : page === "libraries" ? (
-          <Libraries tab={id} />
+          <Libraries tab={id} personaId={route.query.get("persona") ?? undefined} />
         ) : page === "progress" ? (
           <Progress key={id ?? ""} name={id} />
         ) : page === "results" ? (

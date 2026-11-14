@@ -134,8 +134,14 @@ admin mode (below); everyone can view them.
     table rows and any extra details.
   - **✦ Draft personas with AI** writes several from a description to fit a template; you
     keep or discard each one.
-  - Link personas to **roles** in a simulation's ⚙ Settings (usually `customer`; a scenario
-    can use a different persona). Their details then appear on screens as
+  - **Assign personas** to roles (usually `customer`) for the whole simulation in ⚙ Settings,
+    or in a scenario's **Personas in this scenario** section. A scenario can keep the
+    simulation's persona, use a different one, have none, or add roles only it has.
+  - **Adjust details** next to any assigned persona to change values (a balance, a plan, the
+    name) for just that simulation or scenario. The shared persona in the library is never
+    changed. Builders don't need admin mode for this. Use **Edit in library ↗** to change
+    the persona everywhere (admin).
+  - Their details then appear on screens as
     `{{customer.name}}`, `{{customer.balance}}` or `{{customer.bills.1.amount}}`. A
     **table** element shows a whole record table, e.g. `customer.bills`.
   - Use invented details only; the editor reminds you, because simulations get exported
