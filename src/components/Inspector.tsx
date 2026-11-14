@@ -18,6 +18,7 @@ import {
   type Step,
 } from "../../shared/schema";
 import { newId } from "../../shared/engine";
+import type { GradingScheme } from "../../shared/library";
 
 const OP_LABEL: Record<(typeof ConditionOps)[number], string> = {
   eq: "equals",
@@ -337,7 +338,8 @@ function elementName(sim: Simulation, id: string) {
   return `${id} (missing)`;
 }
 
-export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord, onPlay, initialPathId }: {
+export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord, onPlay, initialPathId, schemes }: {
+  schemes: GradingScheme[] | null;
   scenario: Scenario;
   sim: Simulation;
   onChange: (s: Scenario) => void;
@@ -490,6 +492,13 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
         <button className="btn sm" onClick={() => setSteps([...steps, { id: newId("step"), instruction: "", elementId: "", expect: "any" }])}>+ Add step</button>
         <button className="btn sm" onClick={() => onRecord(path.id)}>● Record steps by doing</button>
       </div>
+      <label className="field">
+        <span>Grading</span>
+        <select value={scenario.gradingSchemeId ?? ""} onChange={(e) => set({ gradingSchemeId: e.target.value || null })}>
+          <option value="">Same as the simulation</option>
+          {(schemes ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </label>
       <h4>Success criteria</h4>
       <ConditionsEditor
         value={scenario.successCriteria}

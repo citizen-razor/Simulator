@@ -43,8 +43,16 @@ import {
   readAsset,
   saveAsset,
   saveSimulation,
+  deleteScheme,
+  readGrading,
+  readTaxonomy,
+  saveScheme,
+  saveTaxonomy,
+  updateAttempt,
 } from "./storage";
 import { buildBundle, exportFileName, importBundle, ImportError } from "./transfer";
+import { adminPinRequired, checkPin, requireAdmin } from "./admin";
+import { finalScore } from "../shared/grading";
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = "127.0.0.1";
@@ -140,12 +148,76 @@ app.post(
   "/api/import",
   route(async (req, res) => {
     try {
-      const { simulation, warnings } = await importBundle(req.body, saveAsset, newId());
+      const [tax, grading] = await Promise.all([readTaxonomy(), readGrading()]);
+      const known = {
+        tagIds: new Set(tax.topics.flatMap((t) => t.tags.map((x) => x.id))),
+        schemeIds: new Set(grading.schemes.map((s) => s.id)),
+      };
+      const { simulation, warnings } = await importBundle(req.body, saveAsset, newId(), known);
       res.status(201).json({ simulation: await saveSimulation(simulation), warnings });
     } catch (e) {
       if (e instanceof ImportError) throw new HttpError(400, e.message);
       throw e;
     }
+  }),
+);
+
+// ---- admin + libraries
+
+app.get("/api/admin/status", (_req, res) => {
+  res.json({ pinRequired: adminPinRequired() });
+});
+
+app.post(
+  "/api/admin/verify",
+  route(async (req, res) => {
+    if (!checkPin(req.body?.pin)) throw new HttpError(403, "That PIN isn't right.");
+    res.json({ ok: true });
+  }),
+);
+
+app.get("/api/library/taxonomy", route(async (_req, res) => res.json(await readTaxonomy())));
+app.put(
+  "/api/library/taxonomy",
+  route(async (req, res) => {
+    requireAdmin(req);
+    res.json(await saveTaxonomy(req.body));
+  }),
+);
+
+app.get("/api/library/grading", route(async (_req, res) => res.json(await readGrading())));
+app.put(
+  "/api/library/grading/:id",
+  route(async (req, res) => {
+    requireAdmin(req);
+    res.json(await saveScheme({ ...req.body, id: param(req, "id") }));
+  }),
+);
+app.delete(
+  "/api/library/grading/:id",
+  route(async (req, res) => {
+    requireAdmin(req);
+    await deleteScheme(param(req, "id"));
+    res.status(204).end();
+  }),
+);
+
+/** Trainer marking: set manual rubric criteria to met / not met / unmarked (null), then rescore. */
+app.post(
+  "/api/attempts/:id/marks",
+  route(async (req, res) => {
+    requireAdmin(req);
+    const marks = (req.body?.marks ?? {}) as Record<string, unknown>;
+    const updated = await updateAttempt(param(req, "id"), (a) => {
+      if (!a.grading) throw new HttpError(400, "This attempt has no rubric to mark.");
+      const rubric = a.grading.rubric.map((c) =>
+        c.manual && c.id in marks ? { ...c, met: marks[c.id] === null ? null : Boolean(marks[c.id]) } : c,
+      );
+      const grading = { ...a.grading, rubric };
+      const { score, passed } = finalScore(grading, a.completed);
+      return { ...a, grading, score, passed };
+    });
+    res.json(updated);
   }),
 );
 

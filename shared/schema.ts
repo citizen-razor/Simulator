@@ -137,7 +137,17 @@ export const ScenarioSchema = z.object({
   alternatePaths: z.array(PathSchema).default([]),
   /** Optional extra checks on state required to finish (e.g. status = "Resolved"). */
   successCriteria: z.array(ConditionSchema).default([]),
+  /** Use a different grading scheme for this scenario (null = the simulation's scheme). */
+  gradingSchemeId: z.string().nullable().default(null),
 });
+
+/** Per-simulation targets for a grading scheme's screen/state checks (see shared/library.ts). */
+export const BindingSchema = z.object({
+  itemId: z.string(),
+  screenId: z.string().optional(),
+  conditions: z.array(ConditionSchema).optional(),
+});
+export type Binding = z.infer<typeof BindingSchema>;
 
 export const SimulationSchema = z.object({
   id,
@@ -147,6 +157,12 @@ export const SimulationSchema = z.object({
   variables: z.array(VariableSchema).default([]),
   screens: z.array(ScreenSchema).min(1),
   scenarios: z.array(ScenarioSchema).default([]),
+  /** Tag ids from the topic/tag library. */
+  tagIds: z.array(z.string()).default([]),
+  /** Grading scheme from the grading library (null = Standard), plus per-simulation check targets. */
+  grading: z
+    .object({ schemeId: z.string().nullable().default(null), bindings: z.array(BindingSchema).default([]) })
+    .default({ schemeId: null, bindings: [] }),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
 });
@@ -195,6 +211,30 @@ export const AttemptSchema = z.object({
   mistakes: z.array(z.string()).default([]),
   /** Step instruction for each error or hint, used to find where a trainee struggles. */
   troubleSteps: z.array(z.string()).default([]),
+  /** Grading details (absent on attempts saved before the grading library existed). */
+  grading: z
+    .object({
+      schemeId: z.string(),
+      schemeName: z.string(),
+      passScore: z.number(),
+      masteryScore: z.number(),
+      pointsScore: z.number(),
+      rubricWeight: z.number(),
+      rubric: z.array(
+        z.object({
+          id: z.string(),
+          label: z.string(),
+          weight: z.number(),
+          manual: z.boolean(),
+          /** null = waiting for a trainer to mark it. */
+          met: z.boolean().nullable(),
+        }),
+      ),
+      overtimeSec: z.number().default(0),
+    })
+    .optional(),
+  /** null while manual rubric items are unmarked (or for older attempts). */
+  passed: z.boolean().nullable().default(null),
   finishedAt: z.string(),
 });
 export type Attempt = z.infer<typeof AttemptSchema>;

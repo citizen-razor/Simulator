@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { findTag, type Taxonomy } from "../../shared/library";
 import { api, assetUrl, exportUrl, type SimSummary } from "../api";
 
 export default function Library() {
@@ -7,6 +8,12 @@ export default function Library() {
   const [imported, setImported] = useState<{ id: string; title: string; warnings: string[] } | null>(null);
   const [importing, setImporting] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [taxonomy, setTaxonomy] = useState<Taxonomy>({ topics: [] });
+  /** "" = everything; "topic:<id>" or "tag:<id>". */
+  const [filter, setFilter] = useState("");
+  useEffect(() => {
+    api.taxonomy().then(setTaxonomy).catch(() => undefined);
+  }, []);
 
   const load = () => api.list().then(setSims).catch((e) => setError(e.message));
   useEffect(() => {
@@ -41,6 +48,16 @@ export default function Library() {
       if (fileInput.current) fileInput.current.value = "";
     }
   };
+
+  const matches = (s: SimSummary) => {
+    if (!filter) return true;
+    const [kind, id] = filter.split(":");
+    if (kind === "tag") return s.tagIds.includes(id);
+    const topic = taxonomy.topics.find((t) => t.id === id);
+    return !!topic && topic.tags.some((t) => s.tagIds.includes(t.id));
+  };
+  const visible = (sims ?? []).filter(matches);
+  const usedTopics = taxonomy.topics.filter((t) => t.tags.some((tag) => (sims ?? []).some((s) => s.tagIds.includes(tag.id))));
 
   const duplicate = async (s: SimSummary) => {
     const full = await api.get(s.id);
@@ -83,8 +100,28 @@ export default function Library() {
           <a className="btn primary" href="#/new">Create your first one</a>
         </div>
       )}
+      {usedTopics.length > 0 && (
+        <div className="filter-bar" role="toolbar" aria-label="Filter by topic or tag">
+          <button className={`tag-toggle ${filter === "" ? "on" : ""}`} onClick={() => setFilter("")}>All</button>
+          {usedTopics.map((topic) => (
+            <span key={topic.id} className="filter-group">
+              <button className={`tag-toggle topic ${filter === `topic:${topic.id}` ? "on" : ""}`} onClick={() => setFilter(`topic:${topic.id}`)}>
+                {topic.name}
+              </button>
+              {topic.tags
+                .filter((tag) => (sims ?? []).some((s) => s.tagIds.includes(tag.id)))
+                .map((tag) => (
+                  <button key={tag.id} className={`tag-toggle ${filter === `tag:${tag.id}` ? "on" : ""}`} onClick={() => setFilter(`tag:${tag.id}`)}>
+                    {tag.name}
+                  </button>
+                ))}
+            </span>
+          ))}
+        </div>
+      )}
+      {sims && sims.length > 0 && visible.length === 0 && <p className="muted">No simulations with that tag.</p>}
       <div className="card-grid">
-        {sims?.map((s) => (
+        {visible.map((s) => (
           <article key={s.id} className="sim-card">
             <a className="sim-cover" href={`#/play/${s.id}`}>
               {s.cover ? <img src={assetUrl(s.cover)} alt="" /> : <span className="cover-placeholder">◧</span>}
@@ -92,6 +129,13 @@ export default function Library() {
             <div className="sim-card-body">
               <h2>{s.title}</h2>
               <p className="muted clamp-2">{s.description || "No description"}</p>
+              {s.tagIds.some((t) => findTag(taxonomy, t)) && (
+                <div className="tag-row card-tags">
+                  {s.tagIds.map((t) => findTag(taxonomy, t)).filter((x) => x !== null).map(({ tag, topic }) => (
+                    <span key={tag.id} className="tag" title={topic.name}>{tag.name}</span>
+                  ))}
+                </div>
+              )}
               <p className="meta">
                 {s.screens} screen{s.screens === 1 ? "" : "s"} · {s.scenarios} scenario{s.scenarios === 1 ? "" : "s"}
               </p>

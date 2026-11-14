@@ -103,10 +103,43 @@ You can also click **Start blank** or **Build manually from N images** to author
 - The **⚠ issues** button lists broken references, such as a step pointing at a deleted control.
 - Save with the button or Ctrl+S. If you try to leave with unsaved changes, you'll be asked first.
 
+### Libraries: topics, tags and grading
+
+The **Libraries** page holds shared lists that every simulation can use. Editing them needs
+admin mode (below); everyone can view them.
+
+- **Topics & tags:** topics (e.g. "Customer service") contain tags (e.g. "Refunds"). Tag a
+  simulation in the editor's ⚙ Settings. You can then filter the Library page by topic or
+  tag, and the Progress page shows mastery per topic.
+- **Grading schemes:** how attempts are scored.
+  - **Points:** penalty per error and per hint, an optional time limit with an overtime
+    penalty, a pass mark and a mastery mark.
+  - **Rubric:** weighted criteria, each checked automatically or marked by a trainer
+    afterwards. Automatic checks are: completed the task, at most N errors, no hints,
+    within the time limit, reached a screen, or the system ends in a given state.
+  - **Rubric weight:** sets how much of the final score comes from the rubric.
+  - **Open-world objectives:** an optional checklist for trainees exploring freely; it's
+    never penalized.
+
+  The built-in **Standard** scheme matches the original scoring. A simulation picks its
+  scheme in ⚙ Settings, and a scenario can override it. Settings is also where you point
+  the scheme's "reached a screen" and "system state" checks at this simulation's own
+  screens and variables, since each simulation has different ones.
+
+**Admin mode:** set `ADMIN_PIN` in `.env` and restart. Editing the libraries and marking
+rubric criteria then needs the PIN (entered on the page; remembered until the browser tab
+closes). Five wrong PINs within a minute lock it for a minute. With no PIN set, anyone can
+edit. This is a light lock for one machine, not a replacement for real logins.
+
 ### Scoring
 
-Scenario attempts start at 100: **−10 per error**, **−5 per hint**. An incomplete run scores
-by the share of steps completed. Before a scored run, the Player asks for the trainee's name
+With the Standard scheme, scenario attempts start at 100: **−10 per error**, **−5 per hint**.
+An incomplete run scores by the share of steps completed. Other schemes change these
+numbers, add a time limit, and/or blend in a rubric:
+`final = points × (100 − rubric weight)% + rubric % met × rubric weight%`. Trainees can open
+"How you're graded" in the Player to see the rules for their run. If a rubric has
+trainer-marked criteria, the score is provisional and marked "⏳ To mark" on the Results
+page until an admin marks them; then the score and pass/fail update. Before a scored run, the Player asks for the trainee's name
 (remembered on that device; click the name in the top bar to change it). Results (trainee,
 score, mistakes, time, assisted or not, path taken) are saved and shown on the **Results**
 page, where you can filter by trainee.
@@ -115,7 +148,8 @@ page, where you can filter by trainee.
 
 The **Progress** page lists every trainee. Click one to see:
 - each scenario's status:
-  - **✓ Mastered:** completed in Scenario mode without guided help, scoring 80 or more
+  - **✓ Mastered:** completed in Scenario mode without guided help, at or above the grading
+  scheme's mastery mark (80 with Standard)
   - **Passed:** completed on their own, but below 80
   - **With help:** completed only with guided help so far
   - **Not yet:** attempted but not completed
@@ -123,7 +157,9 @@ The **Progress** page lists every trainee. Click one to see:
 - **where they struggle:** the steps where they most often made errors or asked for hints
 - their recent attempts
 
-The mastery score of 80 is set in one place, `MASTERY_SCORE` in `shared/progress.ts`.
+Each grading scheme sets its own mastery mark. Attempts saved before grading schemes existed
+use `MASTERY_SCORE` (80) in `shared/progress.ts`. If simulations are tagged, a **By topic**
+section shows how many of each topic's scenarios the trainee has mastered.
 
 ---
 
@@ -177,7 +213,10 @@ src/lib/media.ts      in-browser image resizing and video key-frame extraction
 src/lib/align.ts      draws the grid + numbered boxes for box fine-tuning
 shared/layout.ts      box clamping, fine-tune merging, and snapping
 shared/refactor.ts    safe renames, duplicating, reordering
-shared/progress.ts    per-trainee progress: mastery, trends, trouble spots
+shared/progress.ts    per-trainee progress: mastery, trends, trouble spots, topics
+shared/library.ts     topic/tag and grading-scheme data model
+shared/grading.ts     applies a grading scheme: points, rubric, time limit, objectives
+server/admin.ts       admin PIN check
 samples/              the built-in Helpdesk sample
 tests/                engine and AI-conversion tests
 ```
@@ -196,6 +235,8 @@ The app is designed to run on your own computer.
   "DNS rebinding"). It also requires a custom `X-Simulator` header on every change, which
   browsers won't let another site add. Other sites therefore can't modify data or spend
   your API credits.
+- **Admin PIN.** If set, it is compared in constant time, wrong guesses are rate-limited,
+  and the server (not just the page) refuses library edits and marking without it.
 - **Validated input.** Every saved simulation, attempt, upload and import is checked against a
   schema, and uploaded images must really be PNG, JPEG, WebP or GIF (checked from the file's
   contents, not just its name). File and asset ids must match strict patterns before they touch the disk, which

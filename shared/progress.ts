@@ -4,8 +4,9 @@
  *
  * Definitions (kept in one place so they're easy to change):
  *   solo run   a Scenario-mode attempt with no guided help at any point
- *   mastered   a completed solo run scoring at least MASTERY_SCORE
- *   passed     a completed solo run below that score
+ *   mastered   a completed solo run scoring at least its grading scheme's mastery mark
+ *              (MASTERY_SCORE for attempts saved before grading schemes existed)
+ *   passed     a completed solo run below that mark
  *   assisted   completed, but only with guided help
  *   incomplete attempted, never completed
  */
@@ -53,6 +54,7 @@ export interface TraineeSummary {
 }
 
 export const isSolo = (a: Attempt) => a.mode === "scenario" && !a.assisted;
+export const masteryMark = (a: Attempt) => a.grading?.masteryScore ?? MASTERY_SCORE;
 
 const average = (xs: number[]) => (xs.length ? Math.round(xs.reduce((n, x) => n + x, 0) / xs.length) : null);
 
@@ -63,7 +65,7 @@ export function scenarioProgress(attempts: Attempt[]): ScenarioProgress {
   const soloDone = solo.filter((a) => a.completed);
   const bestSolo = soloDone.length ? Math.max(...soloDone.map((a) => a.score)) : null;
   const status: ScenarioStatus =
-    bestSolo !== null && bestSolo >= MASTERY_SCORE
+    soloDone.some((a) => a.score >= masteryMark(a))
       ? "mastered"
       : bestSolo !== null
         ? "passed"
@@ -126,4 +128,34 @@ export function summarizeTrainee(name: string, attempts: Attempt[]): TraineeSumm
 export function summarizeTrainees(attempts: Attempt[]): TraineeSummary[] {
   const names = [...new Set(attempts.map((a) => a.trainee).filter(Boolean))];
   return names.map((n) => summarizeTrainee(n, attempts)).sort((a, b) => b.lastActive.localeCompare(a.lastActive));
+}
+
+export interface TopicProgress {
+  topicId: string;
+  topicName: string;
+  attempted: number;
+  mastered: number;
+}
+
+/**
+ * Mastery per topic for one trainee. A scenario belongs to a topic when its simulation
+ * carries any of that topic's tags. Topics the trainee hasn't touched are left out.
+ */
+export function topicProgress(
+  summary: TraineeSummary,
+  simTags: Record<string, string[]>,
+  topics: { id: string; name: string; tags: { id: string }[] }[],
+): TopicProgress[] {
+  return topics
+    .map((topic) => {
+      const tagIds = new Set(topic.tags.map((t) => t.id));
+      const inTopic = summary.scenarios.filter((sc) => (simTags[sc.simulationId] ?? []).some((t) => tagIds.has(t)));
+      return {
+        topicId: topic.id,
+        topicName: topic.name,
+        attempted: inTopic.length,
+        mastered: inTopic.filter((sc) => sc.status === "mastered").length,
+      };
+    })
+    .filter((t) => t.attempted > 0);
 }

@@ -60,8 +60,10 @@ export interface SessionState {
   completed: boolean;
   startedAt: number;
   finishedAt: number | null;
-  /** Screens visited, most recent last. */
+  /** Screens visited, most recent last (last 50). */
   history: string[];
+  /** Every screen visited at least once (for coverage objectives). */
+  visited: string[];
   /** Field element ids the trainee has edited (lets out-of-order field steps auto-complete). */
   touched: string[];
   /** Instruction of the step the trainee was on each time they made an error or took a hint. */
@@ -179,6 +181,7 @@ export function createSession(sim: Simulation, scenarioId: string | null, now = 
     startedAt: now,
     finishedAt: null,
     history: [start],
+    visited: [start],
     touched: [],
     troubleSteps: [],
   };
@@ -207,6 +210,7 @@ function runActions(actions: Action[], state: SessionState, sim: Simulation, fee
         if (a.screenId && getScreen(sim, a.screenId)) {
           state.screenId = a.screenId;
           state.history = [...state.history, a.screenId].slice(-50);
+          if (!state.visited.includes(a.screenId)) state.visited = [...state.visited, a.screenId];
         }
         break;
       case "set":
@@ -373,13 +377,22 @@ export interface ScoreSummary {
   pathName: string;
 }
 
-/** 100 points for full completion, minus 10 per error and 5 per hint; partial runs score by progress. */
-export function scoreSession(sim: Simulation, state: SessionState, now = Date.now()): ScoreSummary {
+/**
+ * Points: 100 for full completion (partial runs by progress), minus a penalty per error
+ * and per hint. Defaults match the Standard grading scheme; shared/grading.ts passes a
+ * scheme's own penalties and adds time limits and rubrics on top.
+ */
+export function scoreSession(
+  sim: Simulation,
+  state: SessionState,
+  now = Date.now(),
+  rules: { errorPenalty: number; hintPenalty: number } = { errorPenalty: 10, hintPenalty: 5 },
+): ScoreSummary {
   const path = leadingPath(sim, state);
   const total = path?.steps.length ?? 0;
   const done = Math.min(path ? state.pathProgress[path.id] ?? 0 : 0, total);
   const progress = state.completed ? 1 : total ? done / total : 0;
-  const score = Math.max(0, Math.round(100 * progress - 10 * state.errors - 5 * state.hintsUsed));
+  const score = Math.max(0, Math.round(100 * progress - rules.errorPenalty * state.errors - rules.hintPenalty * state.hintsUsed));
   const end = state.finishedAt ?? now;
   return {
     score,

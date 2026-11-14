@@ -5,6 +5,8 @@ import { ElementKinds, FIELD_KINDS, type ElementKind, type Rect, type SimElement
 import { api, exportUrl, streamAi, type AiProgress } from "../api";
 import { ElementInspector, ScenarioInspector, ScreenInspector, VariablesPanel } from "../components/Inspector";
 import { EditScreen } from "../components/ScreenView";
+import { SimSettings } from "../components/SimSettings";
+import type { GradingScheme, Taxonomy } from "../../shared/library";
 import { alignScreen } from "../lib/align";
 import { prepareImage } from "../lib/media";
 import { navigate, setLeaveGuard } from "../router";
@@ -45,12 +47,16 @@ export default function Editor({ id }: { id: string }) {
   const [aiProgress, setAiProgress] = useState<AiProgress | null>(null);
   const [aiNotes, setAiNotes] = useState("");
   const [aiAvailable, setAiAvailable] = useState(false);
+  const [taxonomy, setTaxonomy] = useState<Taxonomy | null>(null);
+  const [schemes, setSchemes] = useState<GradingScheme[] | null>(null);
   const [aligning, setAligning] = useState(false);
   const [alignMsg, setAlignMsg] = useState<{ screenId: string; text: string } | null>(null);
   const undo = useRef<{ stack: Simulation[]; lastKey: string; lastAt: number }>({ stack: [], lastKey: "", lastAt: 0 });
 
   useEffect(() => {
     api.status().then((s) => setAiAvailable(s.aiConfigured)).catch(() => undefined);
+    api.taxonomy().then(setTaxonomy).catch(() => setTaxonomy({ topics: [] }));
+    api.grading().then((g) => setSchemes(g.schemes)).catch(() => setSchemes([]));
     api
       .get(id)
       .then((s) => {
@@ -365,6 +371,7 @@ export default function Editor({ id }: { id: string }) {
               setSel({ kind: "screen" });
             }}
             key={sc.id}
+            schemes={schemes}
             initialPathId={new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("path") ?? undefined}
             onRecord={(pathId) => goPlay(`/play/${sim.id}?record=${sc.id}&path=${pathId}`)}
             onPlay={(mode) => goPlay(`/play/${sim.id}?mode=${mode}&scenario=${sc.id}`)}
@@ -385,19 +392,7 @@ export default function Editor({ id }: { id: string }) {
       );
     }
     if (sel.kind === "settings") {
-      return (
-        <div className="inspector">
-          <h3>Simulation</h3>
-          <label className="field">
-            <span>Title</span>
-            <input value={sim.title} onChange={(e) => update((d) => { d.title = e.target.value; }, "title")} />
-          </label>
-          <label className="field">
-            <span>Description</span>
-            <textarea rows={4} value={sim.description} onChange={(e) => update((d) => { d.description = e.target.value; }, "desc")} />
-          </label>
-        </div>
-      );
+      return <SimSettings sim={sim} taxonomy={taxonomy} schemes={schemes} update={update} />;
     }
     return (
       <ScreenInspector
@@ -505,7 +500,7 @@ export default function Editor({ id }: { id: string }) {
             onClick={() => {
               const scId = newId("scenario");
               update((d) => {
-                d.scenarios.push({ id: scId, title: "New scenario", goal: "", initialVars: [], steps: [], alternatePaths: [], successCriteria: [] });
+                d.scenarios.push({ id: scId, title: "New scenario", goal: "", initialVars: [], steps: [], alternatePaths: [], successCriteria: [], gradingSchemeId: null });
               });
               setSel({ kind: "scenario", id: scId });
             }}

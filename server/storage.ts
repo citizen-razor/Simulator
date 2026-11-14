@@ -8,6 +8,16 @@
 import { randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import {
+  DEFAULT_SCHEME_ID,
+  GradingLibrarySchema,
+  GradingSchemeSchema,
+  STANDARD_SCHEME,
+  TaxonomySchema,
+  type GradingLibrary,
+  type GradingScheme,
+  type Taxonomy,
+} from "../shared/library";
 import { ASSET_ID_PATTERN, AttemptSchema, ID_PATTERN, SimulationSchema, type Attempt, type Simulation } from "../shared/schema";
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
@@ -65,6 +75,7 @@ export async function listSimulations() {
           screens: s.screens.length,
           scenarios: s.scenarios.length,
           cover,
+          tagIds: s.tagIds,
           updatedAt: s.updatedAt ?? null,
         };
       } catch {
@@ -149,6 +160,80 @@ export function addAttempt(input: unknown): Promise<Attempt> {
     all.unshift(attempt);
     await writeAtomic(ATTEMPTS_FILE, JSON.stringify(all.slice(0, 5000), null, 2));
     return attempt;
+  });
+  attemptsLock = job.catch(() => undefined);
+  return job;
+}
+
+// ------------------------------------------------------------------ libraries
+
+const TAXONOMY_FILE = path.join(DATA_DIR, "taxonomy.json");
+const GRADING_FILE = path.join(DATA_DIR, "grading.json");
+
+async function readJson<T>(file: string, fallback: T): Promise<unknown | T> {
+  try {
+    return JSON.parse(await fs.readFile(file, "utf8"));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return fallback;
+    throw e;
+  }
+}
+
+export async function readTaxonomy(): Promise<Taxonomy> {
+  return TaxonomySchema.parse(await readJson(TAXONOMY_FILE, { topics: [] }));
+}
+
+export async function saveTaxonomy(input: unknown): Promise<Taxonomy> {
+  const tax = TaxonomySchema.parse(input);
+  const ids = new Set<string>();
+  for (const t of tax.topics) for (const x of [t, ...t.tags]) {
+    if (ids.has(x.id)) throw new HttpError(400, `Duplicate id "${x.id}" in topics/tags.`);
+    ids.add(x.id);
+  }
+  await writeAtomic(TAXONOMY_FILE, JSON.stringify(tax, null, 2));
+  return tax;
+}
+
+/** The grading library, always including the built-in Standard scheme. */
+export async function readGrading(): Promise<GradingLibrary> {
+  const lib = GradingLibrarySchema.parse(await readJson(GRADING_FILE, { schemes: [] }));
+  if (!lib.schemes.some((s) => s.id === DEFAULT_SCHEME_ID)) lib.schemes.unshift(STANDARD_SCHEME);
+  return lib;
+}
+
+export async function saveScheme(input: unknown): Promise<GradingScheme> {
+  const scheme = GradingSchemeSchema.parse(input);
+  const lib = await readGrading();
+  const i = lib.schemes.findIndex((s) => s.id === scheme.id);
+  if (i === -1) lib.schemes.push(scheme);
+  else lib.schemes[i] = scheme;
+  await writeAtomic(GRADING_FILE, JSON.stringify(lib, null, 2));
+  return scheme;
+}
+
+export async function deleteScheme(schemeId: string) {
+  if (schemeId === DEFAULT_SCHEME_ID) throw new HttpError(400, "The Standard scheme can be edited but not deleted.");
+  const users: string[] = [];
+  for (const summary of await listSimulations()) {
+    const sim = await getSimulation(summary.id);
+    if (sim.grading.schemeId === schemeId) users.push(sim.title);
+    for (const sc of sim.scenarios) if (sc.gradingSchemeId === schemeId) users.push(`${sim.title} → ${sc.title}`);
+  }
+  if (users.length) throw new HttpError(409, `This scheme is still used by: ${users.join("; ")}. Switch them to another scheme first.`);
+  const lib = await readGrading();
+  lib.schemes = lib.schemes.filter((s) => s.id !== schemeId);
+  await writeAtomic(GRADING_FILE, JSON.stringify(lib, null, 2));
+}
+
+/** Change one saved attempt (used for trainer marking). Serialised with other attempt writes. */
+export function updateAttempt(attemptId: string, fn: (a: Attempt) => Attempt): Promise<Attempt> {
+  const job = attemptsLock.then(async () => {
+    const all = await listAttempts();
+    const i = all.findIndex((a) => a.id === attemptId);
+    if (i === -1) throw new HttpError(404, "Attempt not found");
+    all[i] = AttemptSchema.parse(fn(all[i]));
+    await writeAtomic(ATTEMPTS_FILE, JSON.stringify(all, null, 2));
+    return all[i];
   });
   attemptsLock = job.catch(() => undefined);
   return job;

@@ -64,6 +64,8 @@ export async function importBundle(
   raw: unknown,
   saveAsset: SaveAsset,
   newSimId: string,
+  /** Library ids that exist here; references to others are dropped with a warning. */
+  known?: { tagIds: Set<string>; schemeIds: Set<string> },
 ): Promise<{ simulation: Simulation; warnings: string[] }> {
   const warnings: string[] = [];
   let simulationRaw: unknown;
@@ -103,6 +105,21 @@ export async function importBundle(
     screen.imageAssetId = mapped ?? null;
   }
 
+  if (known) {
+    const dropped = sim.tagIds.filter((t) => !known.tagIds.has(t));
+    if (dropped.length) warnings.push(`${dropped.length} tag${dropped.length > 1 ? "s" : ""} from the file don't exist in this library and were removed.`);
+    sim.tagIds = sim.tagIds.filter((t) => known.tagIds.has(t));
+    if (sim.grading.schemeId && !known.schemeIds.has(sim.grading.schemeId)) {
+      warnings.push("The file's grading scheme doesn't exist here; the simulation uses Standard grading.");
+      sim.grading = { schemeId: null, bindings: [] };
+    }
+    for (const sc of sim.scenarios) {
+      if (sc.gradingSchemeId && !known.schemeIds.has(sc.gradingSchemeId)) {
+        warnings.push(`Scenario "${sc.title}" used a grading scheme that doesn't exist here; it now uses the simulation's.`);
+        sc.gradingSchemeId = null;
+      }
+    }
+  }
   sim.createdAt = undefined;
   sim.updatedAt = undefined;
   warnings.push(...lintSimulation(sim));

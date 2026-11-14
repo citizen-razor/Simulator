@@ -4,14 +4,15 @@
  * All figures come from saved attempts (see shared/progress.ts for the definitions).
  */
 import { useEffect, useMemo, useState } from "react";
-import { MASTERY_SCORE, summarizeTrainee, summarizeTrainees, type ScenarioStatus } from "../../shared/progress";
+import { MASTERY_SCORE, summarizeTrainee, summarizeTrainees, topicProgress, type ScenarioStatus } from "../../shared/progress";
+import type { Taxonomy } from "../../shared/library";
 import type { Attempt } from "../../shared/schema";
 import { api } from "../api";
 import { ScoreTrend } from "../components/ScoreTrend";
 
 const STATUS: Record<ScenarioStatus, { icon: string; label: string; cls: string; help: string }> = {
-  mastered: { icon: "✓", label: "Mastered", cls: "good", help: `Completed on their own with a score of ${MASTERY_SCORE} or more` },
-  passed: { icon: "◐", label: "Passed", cls: "ok", help: `Completed on their own, but below ${MASTERY_SCORE}` },
+  mastered: { icon: "✓", label: "Mastered", cls: "good", help: "Completed on their own, at or above the grading scheme's mastery mark" },
+  passed: { icon: "◐", label: "Passed", cls: "ok", help: "Completed on their own, but below the mastery mark" },
   assisted: { icon: "◌", label: "With help", cls: "neutral", help: "Only completed with guided help so far" },
   incomplete: { icon: "○", label: "Not yet", cls: "neutral", help: "Attempted but not completed" },
 };
@@ -32,13 +33,17 @@ function Trend({ value }: { value: number | null }) {
 export default function Progress({ name }: { name?: string }) {
   const [attempts, setAttempts] = useState<Attempt[] | null>(null);
   const [error, setError] = useState("");
+  const [simTags, setSimTags] = useState<Record<string, string[]>>({});
+  const [taxonomy, setTaxonomy] = useState<Taxonomy>({ topics: [] });
   useEffect(() => {
     api.attempts().then(setAttempts).catch((e) => setError(e.message));
+    api.list().then((sims) => setSimTags(Object.fromEntries(sims.map((s) => [s.id, s.tagIds])))).catch(() => undefined);
+    api.taxonomy().then(setTaxonomy).catch(() => undefined);
   }, []);
 
   if (error) return <div className="page"><div className="alert error">{error}</div></div>;
   if (!attempts) return <div className="page muted">Loading…</div>;
-  return name ? <TraineeDetail name={name} attempts={attempts} /> : <Overview attempts={attempts} />;
+  return name ? <TraineeDetail name={name} attempts={attempts} simTags={simTags} taxonomy={taxonomy} /> : <Overview attempts={attempts} />;
 }
 
 function Overview({ attempts }: { attempts: Attempt[] }) {
@@ -50,7 +55,8 @@ function Overview({ attempts }: { attempts: Attempt[] }) {
         <div>
           <h1>Trainee progress</h1>
           <p className="muted">
-            A scenario is <b>mastered</b> when a trainee completes it in Scenario mode, without guided help, scoring {MASTERY_SCORE} or more.
+            A scenario is <b>mastered</b> when a trainee completes it in Scenario mode, without guided help, at or above its grading
+            scheme's mastery mark ({MASTERY_SCORE} with Standard grading).
           </p>
         </div>
       </div>
@@ -82,8 +88,9 @@ function Overview({ attempts }: { attempts: Attempt[] }) {
   );
 }
 
-function TraineeDetail({ name, attempts }: { name: string; attempts: Attempt[] }) {
+function TraineeDetail({ name, attempts, simTags, taxonomy }: { name: string; attempts: Attempt[]; simTags: Record<string, string[]>; taxonomy: Taxonomy }) {
   const t = useMemo(() => summarizeTrainee(name, attempts), [name, attempts]);
+  const byTopic = useMemo(() => topicProgress(t, simTags, taxonomy.topics), [t, simTags, taxonomy]);
   const recent = useMemo(
     () => attempts.filter((a) => a.trainee === name).sort((a, b) => b.finishedAt.localeCompare(a.finishedAt)).slice(0, 10),
     [name, attempts],
@@ -109,6 +116,23 @@ function TraineeDetail({ name, attempts }: { name: string; attempts: Attempt[] }
         <div className="tile"><span className="muted small">Attempts</span><b>{t.attempts}</b><span className="muted small">{guided} with guided help</span></div>
         <div className="tile"><span className="muted small">Practice time</span><b>{fmtDuration(t.practiceSec)}</b></div>
       </div>
+
+      {byTopic.length > 0 && (
+        <>
+          <h2 className="section">By topic</h2>
+          <div className="topic-bars">
+            {byTopic.map((tp) => (
+              <div key={tp.topicId} className="topic-bar">
+                <span className="topic-bar-name">{tp.topicName}</span>
+                <div className="progress" role="img" aria-label={`${tp.mastered} of ${tp.attempted} mastered`}>
+                  <span style={{ width: `${(100 * tp.mastered) / tp.attempted}%` }} />
+                </div>
+                <span className="muted small">{tp.mastered} of {tp.attempted} mastered</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       <h2 className="section">By scenario</h2>
       <table className="results-table progress-table">
@@ -140,7 +164,7 @@ function TraineeDetail({ name, attempts }: { name: string; attempts: Attempt[] }
       </table>
       <p className="muted small legend-note">
         In the charts, <span className="legend-dot" /> solo runs (joined by a line), <span className="legend-dot hollow" /> runs with guided help,
-        and the dashed line is the mastery score ({MASTERY_SCORE}). Hover a dot for details.
+        and the dashed line is the mastery mark. Hover a dot for details.
       </p>
 
       <h2 className="section">Where {t.name} struggles</h2>

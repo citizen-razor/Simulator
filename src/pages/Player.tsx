@@ -20,6 +20,8 @@ import { MAIN_PATH_ID, scenarioPaths, type Simulation, type SimElement, type Ste
 import { api } from "../api";
 import { PlayScreen } from "../components/ScreenView";
 import { navigate } from "../router";
+import { evaluateObjectives, gradeSession, resolveScheme, timeLeft, type GradeResult } from "../../shared/grading";
+import { STANDARD_SCHEME, type GradingScheme } from "../../shared/library";
 import { loadTrainee, saveTrainee } from "../lib/trainee";
 
 const MODES: { id: Mode; label: string; blurb: string }[] = [
@@ -57,7 +59,8 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   const [showHotspots, setShowHotspots] = useState(false);
   const [showState, setShowState] = useState(false);
   const [hint, setHint] = useState("");
-  const [summary, setSummary] = useState<null | { completed: boolean; score: number; durationSec: number }>(null);
+  const [summary, setSummary] = useState<null | { completed: boolean; grade: GradeResult; durationSec: number }>(null);
+  const [schemes, setSchemes] = useState<GradingScheme[]>([STANDARD_SCHEME]);
   const [recording, setRecording] = useState<Step[]>([]);
   const [trainee, setTrainee] = useState(loadTrainee);
   const [nameDraft, setNameDraft] = useState("");
@@ -66,6 +69,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   const toastId = useRef(0);
 
   useEffect(() => {
+    api.grading().then((g) => setSchemes(g.schemes)).catch(() => undefined);
     api
       .get(id)
       .then((s) => {
@@ -99,13 +103,18 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   const screen = getScreen(sim, session.screenId) ?? sim.screens[0];
   const step = mode === "open" ? null : currentStep(sim, session);
   const stepTarget = step ? findElement(sim, step.elementId) : null;
-  const score = scoreSession(sim, session);
+  const scheme = resolveScheme(sim, session.scenarioId, schemes);
+  const score = scoreSession(sim, session, Date.now(), scheme.points);
+  const clock = timeLeft(session, scheme);
+  const objectives = mode === "open" && !recordInto ? evaluateObjectives(sim, session, scheme) : [];
 
   const finish = (s: SessionState, completed: boolean, m: Mode) => {
     const sc = getScenario(sim, s.scenarioId);
-    const result = scoreSession(sim, s);
-    setSummary({ completed, score: result.score, durationSec: result.durationSec });
+    const result = scoreSession(sim, s, Date.now(), scheme.points);
+    const grade = gradeSession(sim, s, scheme);
+    setSummary({ completed, grade, durationSec: result.durationSec });
     if (!sc || m === "open" || recordInto) return;
+    const { score: finalScore, passed, pendingManual: _pending, ...grading } = grade;
     api
       .addAttempt({
         trainee,
@@ -116,7 +125,9 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
         mode: m === "guided" ? "guided" : "scenario",
         assisted: s.assisted || m === "guided",
         completed,
-        score: result.score,
+        score: finalScore,
+        passed,
+        grading,
         errors: s.errors,
         hintsUsed: s.hintsUsed,
         durationSec: result.durationSec,
@@ -244,7 +255,17 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
           {mode === "guided" && stepTarget && stepTarget.screen.id !== screen.id && (
             <div className="alert info stage-banner">
               The next step is on the <b>{stepTarget.screen.name}</b> screen.
-              <button className="btn sm" onClick={() => setSession({ ...session, screenId: stepTarget.screen.id, history: [...session.history, stepTarget.screen.id] })}>
+              <button
+                className="btn sm"
+                onClick={() =>
+                  setSession({
+                    ...session,
+                    screenId: stepTarget.screen.id,
+                    history: [...session.history, stepTarget.screen.id],
+                    visited: session.visited.includes(stepTarget.screen.id) ? session.visited : [...session.visited, stepTarget.screen.id],
+                  })
+                }
+              >
                 Take me there
               </button>
             </div>
@@ -301,6 +322,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                   <p><b>Goal:</b> {scenario.goal}</p>
                   {scenario.briefing && <p className="muted">{scenario.briefing}</p>}
                   {session.assisted && mode === "scenario" && <p className="badge">Assisted run</p>}
+                  <GradingInfo scheme={scheme} />
                 </section>
               )}
 
@@ -326,7 +348,13 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                 <section className="panel stats">
                   <div><span className="muted small">Progress</span><b>{score.stepsCompleted}/{score.stepsTotal}</b></div>
                   <div><span className="muted small">Errors</span><b>{session.errors}</b></div>
-                  <div><span className="muted small">Time</span><b>{formatTime(session.finished ? score.durationSec : elapsed)}</b></div>
+                  {clock === null ? (
+                    <div><span className="muted small">Time</span><b>{formatTime(session.finished ? score.durationSec : elapsed)}</b></div>
+                  ) : clock >= 0 ? (
+                    <div><span className="muted small">Time left</span><b className={clock < 30 ? "text-warn" : ""}>{formatTime(clock)}</b></div>
+                  ) : (
+                    <div><span className="muted small">Overtime</span><b className="text-error">+{formatTime(-clock)}</b></div>
+                  )}
                   <div className="progress"><span style={{ width: `${(100 * score.stepsCompleted) / Math.max(1, score.stepsTotal)}%` }} /></div>
                   {hint && <div className="hint">💡 {hint}</div>}
                   <div className="row">
@@ -357,6 +385,22 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                 </section>
               )}
 
+              {objectives.length > 0 && (
+                <section className="panel">
+                  <h3>Objectives</h3>
+                  <p className="muted small">Optional goals while you explore. They tick off by themselves.</p>
+                  <ul className="checklist">
+                    {objectives.map((o) => (
+                      <li key={o.id} className={o.met ? "met" : ""}>
+                        <span aria-hidden>{o.met ? "✓" : "○"}</span> {o.label}
+                        <span className="sr-only">{o.met ? " (done)" : " (not yet)"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="muted small">{objectives.filter((o) => o.met).length} of {objectives.length} done</p>
+                </section>
+              )}
+
               <section className="panel toggles">
                 <label><input type="checkbox" checked={showHotspots} onChange={(e) => setShowHotspots(e.target.checked)} /> Outline clickable areas</label>
                 <label><input type="checkbox" checked={showState} onChange={(e) => setShowState(e.target.checked)} /> Show system state</label>
@@ -379,7 +423,31 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
         <div className="modal-backdrop">
           <div className="modal">
             <h2>{summary.completed ? "Scenario complete" : "Scenario ended"}</h2>
-            <p className="big-score">{summary.score}<span>/100</span></p>
+            <p className="big-score">{summary.grade.score}<span>/100</span></p>
+            <p>
+              {summary.grade.passed === null ? (
+                <span className="status neutral">⏳ Awaiting trainer marking</span>
+              ) : summary.grade.passed ? (
+                <span className="status good">✓ Passed</span>
+              ) : (
+                <span className="status bad">✕ Not passed</span>
+              )}{" "}
+              <span className="muted small">
+                Pass mark {summary.grade.passScore} · {summary.grade.schemeName} grading
+                {summary.grade.rubric.length > 0 && summary.grade.rubricWeight > 0 && ` · points ${summary.grade.pointsScore} (${100 - summary.grade.rubricWeight}%) + rubric (${summary.grade.rubricWeight}%)`}
+                {summary.grade.overtimeSec > 0 && ` · ${formatTime(summary.grade.overtimeSec)} over time`}
+              </span>
+            </p>
+            {summary.grade.rubric.length > 0 && (
+              <ul className="checklist rubric-result">
+                {summary.grade.rubric.map((c) => (
+                  <li key={c.id} className={c.met === true ? "met" : c.met === false ? "missed" : "pending"}>
+                    <span aria-hidden>{c.met === true ? "✓" : c.met === false ? "✕" : "⏳"}</span> {c.label}
+                    <span className="muted small">{c.met === null ? " (a trainer will mark this)" : ""}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
             <p className="muted">
               {score.stepsCompleted} of {score.stepsTotal} steps · {session.errors} error{session.errors === 1 ? "" : "s"} · {session.hintsUsed} hint
               {session.hintsUsed === 1 ? "" : "s"} · {formatTime(summary.durationSec)}
@@ -432,5 +500,28 @@ function RecordingPanel({ scenarioTitle, steps, onRemove, onSave, onCancel }: {
         <button className="btn sm ghost" onClick={onCancel}>Cancel</button>
       </div>
     </section>
+  );
+}
+
+/** Tells the trainee up front how this run is graded. */
+function GradingInfo({ scheme }: { scheme: GradingScheme }) {
+  const p = scheme.points;
+  return (
+    <details className="grading-info">
+      <summary className="small">How you're graded ({scheme.name})</summary>
+      <ul className="small">
+        <li>Finish the task for 100 points; −{p.errorPenalty} per mistake, −{p.hintPenalty} per hint.</li>
+        {p.timeLimitSec !== null && (
+          <li>Time limit {formatTime(p.timeLimitSec)}; −{p.overtimePenaltyPerMin} per minute over.</li>
+        )}
+        {scheme.rubric.length > 0 && (
+          <li>
+            {scheme.rubricWeight > 0 ? `${scheme.rubricWeight}% of the score comes from:` : "Also assessed:"}
+            <ul>{scheme.rubric.map((c) => <li key={c.id}>{c.label}</li>)}</ul>
+          </li>
+        )}
+        <li>Pass mark {p.passScore}; {p.masteryScore}+ without help counts as mastered.</li>
+      </ul>
+    </details>
   );
 }

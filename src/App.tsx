@@ -1,6 +1,7 @@
 import { useRoute } from "./router";
 import Create from "./pages/Create";
 import Editor from "./pages/Editor";
+import Libraries from "./pages/Libraries";
 import Library from "./pages/Library";
 import Player from "./pages/Player";
 import Progress from "./pages/Progress";
@@ -21,6 +22,7 @@ export default function App() {
           <a href="#/new" className={page === "new" ? "active" : ""}>Create</a>
           <a href="#/progress" className={page === "progress" ? "active" : ""}>Progress</a>
           <a href="#/results" className={page === "results" ? "active" : ""}>Results</a>
+          <a href="#/libraries" className={page === "libraries" ? "active" : ""}>Libraries</a>
         </nav>
       </header>
       <main>
@@ -30,6 +32,8 @@ export default function App() {
           <Editor key={id} id={id} />
         ) : page === "play" && id ? (
           <Player key={`${id}?${route.query.toString()}`} id={id} query={route.query} />
+        ) : page === "libraries" ? (
+          <Libraries tab={id} />
         ) : page === "progress" ? (
           <Progress key={id ?? ""} name={id} />
         ) : page === "results" ? (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MASTERY_SCORE, summarizeTrainee, summarizeTrainees } from "../shared/progress";
+import { MASTERY_SCORE, summarizeTrainee, summarizeTrainees, topicProgress } from "../shared/progress";
 import type { Attempt } from "../shared/schema";
 
 let n = 0;
@@ -22,6 +22,7 @@ function attempt(p: Partial<Attempt>): Attempt {
     stepsCompleted: 5,
     stepsTotal: 5,
     pathName: "",
+    passed: null,
     mistakes: [],
     troubleSteps: [],
     finishedAt: `2026-11-${String(10 + n).padStart(2, "0")}T10:00:00Z`,
@@ -75,5 +76,26 @@ describe("trainee progress", () => {
   it("lists named trainees, most recently active first, skipping unnamed attempts", () => {
     const list = [attempt({ trainee: "Ana" }), attempt({ trainee: "" }), attempt({ trainee: "Ben" })];
     expect(summarizeTrainees(list).map((t) => t.name)).toEqual(["Ben", "Ana"]);
+  });
+});
+
+describe("progress by topic", () => {
+  it("counts mastery per topic through simulation tags, and uses each attempt's own mastery mark", () => {
+    const list = [
+      attempt({ simulationId: "s1", scenarioId: "a", score: 85 }),
+      attempt({ simulationId: "s1", scenarioId: "b", score: 60 }),
+      attempt({ simulationId: "s2", scenarioId: "c", score: 75, grading: { schemeId: "lenient", schemeName: "Lenient", passScore: 50, masteryScore: 70, pointsScore: 75, rubricWeight: 0, rubric: [], overtimeSec: 0 } }),
+    ];
+    const summary = summarizeTrainee("Sam", list);
+    const topics = [
+      { id: "cs", name: "Customer service", tags: [{ id: "refunds" }] },
+      { id: "it", name: "IT", tags: [{ id: "vpn" }] },
+      { id: "hr", name: "HR", tags: [{ id: "leave" }] },
+    ];
+    const out = topicProgress(summary, { s1: ["refunds"], s2: ["refunds", "vpn"] }, topics);
+    expect(out).toEqual([
+      { topicId: "cs", topicName: "Customer service", attempted: 3, mastered: 2 },
+      { topicId: "it", topicName: "IT", attempted: 1, mastered: 1 },
+    ]);
   });
 });

@@ -1,5 +1,7 @@
 /** Thin wrappers around the local API. Every write sends the X-Simulator header the server requires. */
+import type { GradingLibrary, GradingScheme, Taxonomy } from "../shared/library";
 import type { Attempt, Simulation } from "../shared/schema";
+import { adminPin } from "./lib/admin";
 
 export interface SimSummary {
   id: string;
@@ -8,6 +10,7 @@ export interface SimSummary {
   screens: number;
   scenarios: number;
   cover: string | null;
+  tagIds: string[];
   updatedAt: string | null;
 }
 
@@ -25,7 +28,7 @@ export interface AiProgress {
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
-    headers: { "Content-Type": "application/json", "X-Simulator": "1" },
+    headers: { "Content-Type": "application/json", "X-Simulator": "1", ...(adminPin() ? { "X-Admin-Pin": adminPin()! } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
@@ -46,6 +49,14 @@ export const api = {
   attempts: (simulationId?: string) =>
     request<Attempt[]>("GET", `/api/attempts${simulationId ? `?simulationId=${encodeURIComponent(simulationId)}` : ""}`),
   importSimulation: (data: unknown) => request<{ simulation: Simulation; warnings: string[] }>("POST", "/api/import", data),
+  adminStatus: () => request<{ pinRequired: boolean }>("GET", "/api/admin/status"),
+  verifyPin: (pin: string) => request<{ ok: true }>("POST", "/api/admin/verify", { pin }),
+  taxonomy: () => request<Taxonomy>("GET", "/api/library/taxonomy"),
+  saveTaxonomy: (t: Taxonomy) => request<Taxonomy>("PUT", "/api/library/taxonomy", t),
+  grading: () => request<GradingLibrary>("GET", "/api/library/grading"),
+  saveScheme: (s: GradingScheme) => request<GradingScheme>("PUT", `/api/library/grading/${encodeURIComponent(s.id)}`, s),
+  deleteScheme: (id: string) => request<void>("DELETE", `/api/library/grading/${encodeURIComponent(id)}`),
+  markAttempt: (id: string, marks: Record<string, boolean | null>) => request<Attempt>("POST", `/api/attempts/${encodeURIComponent(id)}/marks`, { marks }),
   addAttempt: (a: Omit<Attempt, "id">) => request<Attempt>("POST", "/api/attempts", { ...a, id: "new" }),
 };
 

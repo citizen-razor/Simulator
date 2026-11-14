@@ -88,3 +88,20 @@ describe("export / import", () => {
     expect(exportFileName("???")).toBe("simulation.simulation.json");
   });
 });
+
+describe("import drops library references that don't exist here", () => {
+  it("removes unknown tags and schemes with warnings", async () => {
+    const sim = SimulationSchema.parse(structuredClone(sample));
+    sim.tagIds = ["tag-known", "tag-elsewhere"];
+    sim.grading = { schemeId: "scheme-elsewhere", bindings: [] };
+    sim.scenarios[0].gradingSchemeId = "scheme-known";
+    const { simulation, warnings } = await importBundle(sim, memoryStore().save, "sim-y", {
+      tagIds: new Set(["tag-known"]),
+      schemeIds: new Set(["standard", "scheme-known"]),
+    });
+    expect(simulation.tagIds).toEqual(["tag-known"]);
+    expect(simulation.grading.schemeId).toBeNull();
+    expect(simulation.scenarios[0].gradingSchemeId).toBe("scheme-known");
+    expect(warnings.join(" ")).toMatch(/1 tag .* removed.*Standard grading/);
+  });
+});
