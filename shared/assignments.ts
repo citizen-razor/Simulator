@@ -25,7 +25,12 @@ export type Requirement = (typeof Requirements)[number];
 
 export const AssignmentSchema = z.object({
   id: z.string().regex(ID_PATTERN),
+  /** The assignee's account (older assignments have only a name). */
+  userId: z.string().optional(),
+  /** The assignee's name, for display. */
   trainee: z.string().trim().min(1).max(100),
+  /** Who assigned it. */
+  assignedBy: z.string().optional(),
   simulationId: z.string(),
   scenarioId: z.string(),
   /** Titles at the time of assigning, so the assignment still reads well if they change. */
@@ -40,6 +45,9 @@ export const AssignmentSchema = z.object({
 export type Assignment = z.infer<typeof AssignmentSchema>;
 
 export const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+/** Is this attempt by the assignment's trainee? By account when both have one, otherwise by name. */
+export const sameTrainee = (a: { userId?: string; trainee: string }, asg: { userId?: string; trainee: string }) =>
+  a.userId && asg.userId ? a.userId === asg.userId : sameName(a.trainee, asg.trainee);
 
 export const REQUIREMENT_TEXT: Record<Requirement, string> = {
   complete: "Complete it (guided help allowed)",
@@ -77,7 +85,7 @@ const dayNumber = (ymd: string) => Math.round(Date.parse(`${ymd}T00:00:00Z`) / 8
 /** `today` is the viewer's local date as YYYY-MM-DD. */
 export function assignmentStatus(asg: Assignment, attempts: Attempt[], today: string): AssignmentStatus {
   const relevant = attempts
-    .filter((a) => sameName(a.trainee, asg.trainee) && a.simulationId === asg.simulationId && a.scenarioId === asg.scenarioId)
+    .filter((a) => sameTrainee(a, asg) && a.simulationId === asg.simulationId && a.scenarioId === asg.scenarioId)
     .sort((a, b) => a.finishedAt.localeCompare(b.finishedAt));
   const done = relevant.find((a) => meetsRequirement(a, asg.requirement) === true);
   const awaiting = relevant.some((a) => meetsRequirement(a, asg.requirement) === null);

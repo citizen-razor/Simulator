@@ -219,7 +219,8 @@ export type Simulation = z.infer<typeof SimulationSchema>;
 /** A finished Scenario/Guided run, saved for the Results page. */
 export const AttemptSchema = z.object({
   id,
-  /** Who made the attempt (entered in the Player; empty for attempts saved before names existed). */
+  /** Who made the attempt: their account, and their name at the time (older attempts have only a typed name). */
+  userId: z.string().optional(),
   trainee: z.string().trim().max(100).default(""),
   simulationId: z.string(),
   simulationTitle: z.string(),

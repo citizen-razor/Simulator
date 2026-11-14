@@ -5,6 +5,7 @@
  *   data/attempts.json           scored scenario attempts
  * Plain files keep the prototype dependency-free and easy to inspect or back up.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -19,7 +20,7 @@ import {
   type Taxonomy,
 } from "../shared/library";
 import { findUnusedImages, type StoredFile, type UsageReport } from "./cleanup";
-import { AssignmentSchema, sameName, type Assignment } from "../shared/assignments";
+import { AssignmentSchema, type Assignment } from "../shared/assignments";
 import {
   PersonaLibrarySchema,
   PersonaSchema,
@@ -30,10 +31,39 @@ import {
 } from "../shared/personas";
 import { ASSET_ID_PATTERN, AttemptSchema, ID_PATTERN, SimulationSchema, type Attempt, type Simulation } from "../shared/schema";
 
-const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
-const SIM_DIR = path.join(DATA_DIR, "simulations");
-const ASSET_DIR = path.join(DATA_DIR, "assets");
-const ATTEMPTS_FILE = path.join(DATA_DIR, "attempts.json");
+export const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
+
+/**
+ * Organisations. Every request runs "inside" its user's organisation (set by the auth
+ * middleware with runInOrg), and every path below is resolved for that organisation, so
+ * one organisation can never read another's files. The default organisation uses data/
+ * itself (where everything lived before organisations existed); others get
+ * data/orgs/<id>/. Users, sessions and the organisation list are global (see server/auth.ts).
+ */
+export const DEFAULT_ORG = "default";
+const orgContext = new AsyncLocalStorage<string>();
+export const runInOrg = <T>(orgId: string, fn: () => T): T => orgContext.run(orgId, fn);
+export const currentOrg = () => orgContext.getStore() ?? DEFAULT_ORG;
+function orgDir(): string {
+  const id = currentOrg();
+  if (!ID_PATTERN.test(id)) throw new HttpError(400, "Invalid organisation");
+  return id === DEFAULT_ORG ? DATA_DIR : path.join(DATA_DIR, "orgs", id);
+}
+const SIM_DIR = () => path.join(orgDir(), "simulations");
+const ASSET_DIR = () => path.join(orgDir(), "assets");
+const ATTEMPTS_FILE = () => path.join(orgDir(), "attempts.json");
+
+/** Create an organisation's folders (and seed the sample) the first time it's used. */
+const readyOrgs = new Set<string>();
+let seedSims: Simulation[] = [];
+export async function ensureOrgStorage() {
+  const id = currentOrg();
+  if (readyOrgs.has(id)) return;
+  await fs.mkdir(SIM_DIR(), { recursive: true });
+  await fs.mkdir(ASSET_DIR(), { recursive: true });
+  if ((await fs.readdir(SIM_DIR())).length === 0) for (const s of seedSims) await saveSimulation(s);
+  readyOrgs.add(id);
+}
 
 export const ASSET_TYPES: Record<string, string> = {
   "image/png": "png",
@@ -43,10 +73,8 @@ export const ASSET_TYPES: Record<string, string> = {
 };
 
 export async function initStorage(seed: Simulation[]) {
-  await fs.mkdir(SIM_DIR, { recursive: true });
-  await fs.mkdir(ASSET_DIR, { recursive: true });
-  const existing = await fs.readdir(SIM_DIR);
-  if (existing.length === 0) for (const s of seed) await saveSimulation(s);
+  seedSims = seed;
+  await runInOrg(DEFAULT_ORG, ensureOrgStorage);
 }
 
 /** Write via temp file + rename so a crash never leaves a half-written file. */
@@ -58,7 +86,7 @@ async function writeAtomic(file: string, data: string | Buffer) {
 
 function simPath(id: string) {
   if (!ID_PATTERN.test(id)) throw new HttpError(400, "Invalid simulation id");
-  return path.join(SIM_DIR, `${id}.json`);
+  return path.join(SIM_DIR(), `${id}.json`);
 }
 
 export class HttpError extends Error {
@@ -72,11 +100,11 @@ export function newId(prefix = "sim") {
 }
 
 export async function listSimulations() {
-  const files = (await fs.readdir(SIM_DIR)).filter((f) => f.endsWith(".json"));
+  const files = (await fs.readdir(SIM_DIR())).filter((f) => f.endsWith(".json"));
   const sims = await Promise.all(
     files.map(async (f) => {
       try {
-        const s = SimulationSchema.parse(JSON.parse(await fs.readFile(path.join(SIM_DIR, f), "utf8")));
+        const s = SimulationSchema.parse(JSON.parse(await fs.readFile(path.join(SIM_DIR(), f), "utf8")));
         const cover = s.screens.find((sc) => sc.imageAssetId)?.imageAssetId ?? null;
         return {
           id: s.id,
@@ -135,13 +163,13 @@ export async function saveAsset(mediaType: string, data: Buffer): Promise<string
   if (data.length > MAX_ASSET_BYTES) throw new HttpError(413, "Image too large (15 MB max).");
   if (sniffImageType(data) !== mediaType) throw new HttpError(400, `File content is not a valid ${mediaType} image.`);
   const id = `${newId("img")}.${ext}`;
-  await writeAtomic(path.join(ASSET_DIR, id), data);
+  await writeAtomic(path.join(ASSET_DIR(), id), data);
   return id;
 }
 
 export function assetPath(id: string): string {
   if (!ASSET_ID_PATTERN.test(id)) throw new HttpError(400, "Invalid asset id");
-  return path.join(ASSET_DIR, id);
+  return path.join(ASSET_DIR(), id);
 }
 
 export async function readAsset(id: string): Promise<{ data: Buffer; mediaType: string }> {
@@ -154,7 +182,7 @@ export async function readAsset(id: string): Promise<{ data: Buffer; mediaType: 
 export async function listAttempts(simulationId?: string): Promise<Attempt[]> {
   let all: Attempt[] = [];
   try {
-    all = AttemptSchema.array().parse(JSON.parse(await fs.readFile(ATTEMPTS_FILE, "utf8")));
+    all = AttemptSchema.array().parse(JSON.parse(await fs.readFile(ATTEMPTS_FILE(), "utf8")));
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
   }
@@ -168,7 +196,7 @@ export function addAttempt(input: unknown): Promise<Attempt> {
   const job = attemptsLock.then(async () => {
     const all = await listAttempts();
     all.unshift(attempt);
-    await writeAtomic(ATTEMPTS_FILE, JSON.stringify(all.slice(0, 5000), null, 2));
+    await writeAtomic(ATTEMPTS_FILE(), JSON.stringify(all.slice(0, 5000), null, 2));
     return attempt;
   });
   attemptsLock = job.catch(() => undefined);
@@ -177,8 +205,8 @@ export function addAttempt(input: unknown): Promise<Attempt> {
 
 // ------------------------------------------------------------------ libraries
 
-const TAXONOMY_FILE = path.join(DATA_DIR, "taxonomy.json");
-const GRADING_FILE = path.join(DATA_DIR, "grading.json");
+const TAXONOMY_FILE = () => path.join(orgDir(), "taxonomy.json");
+const GRADING_FILE = () => path.join(orgDir(), "grading.json");
 
 async function readJson<T>(file: string, fallback: T): Promise<unknown | T> {
   try {
@@ -190,7 +218,7 @@ async function readJson<T>(file: string, fallback: T): Promise<unknown | T> {
 }
 
 export async function readTaxonomy(): Promise<Taxonomy> {
-  return TaxonomySchema.parse(await readJson(TAXONOMY_FILE, { topics: [] }));
+  return TaxonomySchema.parse(await readJson(TAXONOMY_FILE(), { topics: [] }));
 }
 
 export async function saveTaxonomy(input: unknown): Promise<Taxonomy> {
@@ -200,13 +228,13 @@ export async function saveTaxonomy(input: unknown): Promise<Taxonomy> {
     if (ids.has(x.id)) throw new HttpError(400, `Duplicate id "${x.id}" in topics/tags.`);
     ids.add(x.id);
   }
-  await writeAtomic(TAXONOMY_FILE, JSON.stringify(tax, null, 2));
+  await writeAtomic(TAXONOMY_FILE(), JSON.stringify(tax, null, 2));
   return tax;
 }
 
 /** The grading library, always including the built-in Standard scheme. */
 export async function readGrading(): Promise<GradingLibrary> {
-  const lib = GradingLibrarySchema.parse(await readJson(GRADING_FILE, { schemes: [] }));
+  const lib = GradingLibrarySchema.parse(await readJson(GRADING_FILE(), { schemes: [] }));
   if (!lib.schemes.some((s) => s.id === DEFAULT_SCHEME_ID)) lib.schemes.unshift(STANDARD_SCHEME);
   return lib;
 }
@@ -217,7 +245,7 @@ export async function saveScheme(input: unknown): Promise<GradingScheme> {
   const i = lib.schemes.findIndex((s) => s.id === scheme.id);
   if (i === -1) lib.schemes.push(scheme);
   else lib.schemes[i] = scheme;
-  await writeAtomic(GRADING_FILE, JSON.stringify(lib, null, 2));
+  await writeAtomic(GRADING_FILE(), JSON.stringify(lib, null, 2));
   return scheme;
 }
 
@@ -232,7 +260,7 @@ export async function deleteScheme(schemeId: string) {
   if (users.length) throw new HttpError(409, `This scheme is still used by: ${users.join("; ")}. Switch them to another scheme first.`);
   const lib = await readGrading();
   lib.schemes = lib.schemes.filter((s) => s.id !== schemeId);
-  await writeAtomic(GRADING_FILE, JSON.stringify(lib, null, 2));
+  await writeAtomic(GRADING_FILE(), JSON.stringify(lib, null, 2));
 }
 
 /** Change one saved attempt (used for trainer marking). Serialised with other attempt writes. */
@@ -242,7 +270,7 @@ export function updateAttempt(attemptId: string, fn: (a: Attempt) => Attempt): P
     const i = all.findIndex((a) => a.id === attemptId);
     if (i === -1) throw new HttpError(404, "Attempt not found");
     all[i] = AttemptSchema.parse(fn(all[i]));
-    await writeAtomic(ATTEMPTS_FILE, JSON.stringify(all, null, 2));
+    await writeAtomic(ATTEMPTS_FILE(), JSON.stringify(all, null, 2));
     return all[i];
   });
   attemptsLock = job.catch(() => undefined);
@@ -252,10 +280,10 @@ export function updateAttempt(attemptId: string, fn: (a: Attempt) => Attempt): P
 // ------------------------------------------------------------------ image clean-up
 
 async function storedImages(): Promise<StoredFile[]> {
-  const names = (await fs.readdir(ASSET_DIR)).filter((n) => ASSET_ID_PATTERN.test(n));
+  const names = (await fs.readdir(ASSET_DIR())).filter((n) => ASSET_ID_PATTERN.test(n));
   return Promise.all(
     names.map(async (id) => {
-      const st = await fs.stat(path.join(ASSET_DIR, id));
+      const st = await fs.stat(path.join(ASSET_DIR(), id));
       return { id, size: st.size, mtimeMs: st.mtimeMs };
     }),
   );
@@ -283,12 +311,11 @@ export async function deleteUnusedImages(): Promise<{ deleted: number; bytes: nu
 
 // ------------------------------------------------------------------ assignments
 
-const ASSIGNMENTS_FILE = path.join(DATA_DIR, "assignments.json");
+const ASSIGNMENTS_FILE = () => path.join(orgDir(), "assignments.json");
 let assignmentsLock: Promise<unknown> = Promise.resolve();
 
-export async function listAssignments(trainee?: string): Promise<Assignment[]> {
-  const all = AssignmentSchema.array().parse(await readJson(ASSIGNMENTS_FILE, []));
-  return trainee ? all.filter((a) => sameName(a.trainee, trainee)) : all;
+export async function listAssignments(): Promise<Assignment[]> {
+  return AssignmentSchema.array().parse(await readJson(ASSIGNMENTS_FILE(), []));
 }
 
 export async function getAssignment(id: string): Promise<Assignment> {
@@ -300,16 +327,17 @@ export async function getAssignment(id: string): Promise<Assignment> {
 function updateAssignments(fn: (all: Assignment[]) => Assignment[]): Promise<Assignment[]> {
   const job = assignmentsLock.then(async () => {
     const next = fn(await listAssignments());
-    await writeAtomic(ASSIGNMENTS_FILE, JSON.stringify(next, null, 2));
+    await writeAtomic(ASSIGNMENTS_FILE(), JSON.stringify(next, null, 2));
     return next;
   });
   assignmentsLock = job.catch(() => undefined);
   return job;
 }
 
-/** Assign one scenario to several trainees. One assignment per trainee; a trainee listed twice gets one. */
+/** Assign one scenario to several people. One assignment per person; anyone listed twice gets one. */
 export async function createAssignments(input: {
-  trainees: string[];
+  assignees: { userId: string; name: string }[];
+  assignedBy: string;
   simulationId: string;
   scenarioId: string;
   requirement?: string;
@@ -319,13 +347,15 @@ export async function createAssignments(input: {
   const sim = await getSimulation(input.simulationId);
   const sc = sim.scenarios.find((s) => s.id === input.scenarioId);
   if (!sc) throw new HttpError(400, "That scenario doesn't exist in the simulation.");
-  const names = [...new Map(input.trainees.map((t) => t.trim()).filter(Boolean).map((t) => [t.toLowerCase(), t])).values()];
-  if (!names.length) throw new HttpError(400, "Add at least one trainee.");
+  const assignees = [...new Map(input.assignees.map((a) => [a.userId, a])).values()];
+  if (!assignees.length) throw new HttpError(400, "Choose at least one person.");
   const now = new Date().toISOString();
-  const created = names.map((trainee) =>
+  const created = assignees.map((a) =>
     AssignmentSchema.parse({
       id: newId("asg"),
-      trainee,
+      userId: a.userId,
+      trainee: a.name,
+      assignedBy: input.assignedBy,
       simulationId: sim.id,
       scenarioId: sc.id,
       simulationTitle: sim.title,
@@ -346,18 +376,18 @@ export async function deleteAssignment(id: string) {
 
 // ------------------------------------------------------------------ personas
 
-const PERSONAS_FILE = path.join(DATA_DIR, "personas.json");
+const PERSONAS_FILE = () => path.join(orgDir(), "personas.json");
 let personasLock: Promise<unknown> = Promise.resolve();
 
 export async function readPersonas(): Promise<PersonaLibrary> {
-  return PersonaLibrarySchema.parse(await readJson(PERSONAS_FILE, { templates: [], personas: [] }));
+  return PersonaLibrarySchema.parse(await readJson(PERSONAS_FILE(), { templates: [], personas: [] }));
 }
 
 function updatePersonas<T>(fn: (lib: PersonaLibrary) => T | Promise<T>): Promise<T> {
   const job = personasLock.then(async () => {
     const lib = await readPersonas();
     const out = await fn(lib);
-    await writeAtomic(PERSONAS_FILE, JSON.stringify(PersonaLibrarySchema.parse(lib), null, 2));
+    await writeAtomic(PERSONAS_FILE(), JSON.stringify(PersonaLibrarySchema.parse(lib), null, 2));
     return out;
   });
   personasLock = job.catch(() => undefined);
