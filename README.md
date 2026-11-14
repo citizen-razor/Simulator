@@ -74,12 +74,15 @@ You can also click **Start blank** or **Build manually from N images** to author
 - **✦ Ask AI to change it**: e.g. "add a scenario where the customer has no order number".
   You review the result before saving, and **Undo** (Ctrl+Z) reverts it.
 - The **⚠ issues** button lists broken references, such as a step pointing at a deleted control.
+- Save with the button or Ctrl+S. If you try to leave with unsaved changes, you'll be asked first.
 
 ### Scoring
 
 Scenario attempts start at 100: **−10 per error**, **−5 per hint**. An incomplete run scores
-by the share of steps completed. Results (score, mistakes, time, assisted or not) are saved
-and shown on the **Results** page.
+by the share of steps completed. Before a scored run, the Player asks for the trainee's name
+(remembered on that device; click the name in the top bar to change it). Results (trainee,
+score, mistakes, time, assisted or not) are saved and shown on the **Results** page, where
+you can filter by trainee.
 
 ---
 

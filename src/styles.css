@@ -280,3 +280,7 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
   .app-full { height: auto; overflow: visible; }
   .page { padding: 20px 16px; }
 }
+.name-gate { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; z-index: 20; border-radius: 6px; padding: 16px; }
+.name-gate .panel { width: 100%; max-width: 360px; margin: 0; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25); }
+.name-gate input { width: 100%; }
+.field.inline { flex-direction: row; align-items: center; gap: 8px; margin: 0; }

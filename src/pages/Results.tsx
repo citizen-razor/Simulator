@@ -8,20 +8,24 @@ export default function Results({ simulationId }: { simulationId?: string }) {
   const [attempts, setAttempts] = useState<Attempt[] | null>(null);
   const [error, setError] = useState("");
   const [open, setOpen] = useState<string | null>(null);
+  const [who, setWho] = useState<string>("__all");
 
   useEffect(() => {
     api.attempts(simulationId).then(setAttempts).catch((e) => setError(e.message));
   }, [simulationId]);
 
+  const trainees = useMemo(() => [...new Set((attempts ?? []).map((a) => a.trainee))].sort(), [attempts]);
+  const shown = useMemo(() => (attempts ?? []).filter((a) => who === "__all" || a.trainee === who), [attempts, who]);
+
   const byScenario = useMemo(() => {
     const groups = new Map<string, { title: string; sim: string; list: Attempt[] }>();
-    for (const a of attempts ?? []) {
+    for (const a of shown) {
       const key = `${a.simulationId}/${a.scenarioId}`;
       if (!groups.has(key)) groups.set(key, { title: a.scenarioTitle, sim: a.simulationTitle, list: [] });
       groups.get(key)!.list.push(a);
     }
     return [...groups.values()];
-  }, [attempts]);
+  }, [shown]);
 
   return (
     <div className="page">
@@ -33,6 +37,15 @@ export default function Results({ simulationId }: { simulationId?: string }) {
             {simulationId && <> <a href="#/results">Show all simulations</a></>}
           </p>
         </div>
+        {trainees.length > 0 && (
+          <label className="field inline">
+            <span>Trainee</span>
+            <select value={who} onChange={(e) => setWho(e.target.value)}>
+              <option value="__all">Everyone</option>
+              {trainees.map((t) => <option key={t} value={t}>{t || "(no name)"}</option>)}
+            </select>
+          </label>
+        )}
       </div>
       {error && <div className="alert error">{error}</div>}
       {attempts?.length === 0 && <div className="empty"><p>No attempts yet. Play a scenario to see results here.</p></div>}
@@ -58,16 +71,17 @@ export default function Results({ simulationId }: { simulationId?: string }) {
         </div>
       )}
 
-      {attempts && attempts.length > 0 && (
+      {shown.length > 0 && (
         <table className="results-table">
           <thead>
-            <tr><th>When</th><th>Simulation</th><th>Scenario</th><th>Mode</th><th>Result</th><th>Score</th><th>Errors</th><th>Hints</th><th>Time</th></tr>
+            <tr><th>When</th><th>Trainee</th><th>Simulation</th><th>Scenario</th><th>Mode</th><th>Result</th><th>Score</th><th>Errors</th><th>Hints</th><th>Time</th></tr>
           </thead>
           <tbody>
-            {attempts.map((a) => (
+            {shown.map((a) => (
               <Fragment key={a.id}>
                 <tr className="clickable" onClick={() => setOpen(open === a.id ? null : a.id)}>
                   <td>{new Date(a.finishedAt).toLocaleString()}</td>
+                  <td>{a.trainee || <span className="muted">–</span>}</td>
                   <td>{a.simulationTitle}</td>
                   <td>{a.scenarioTitle}</td>
                   <td>{a.mode}{a.assisted && a.mode === "scenario" ? " (assisted)" : ""}</td>
@@ -79,7 +93,7 @@ export default function Results({ simulationId }: { simulationId?: string }) {
                 </tr>
                 {open === a.id && (
                   <tr className="detail">
-                    <td colSpan={9}>
+                    <td colSpan={10}>
                       {a.mistakes.length ? <ul>{a.mistakes.map((m, i) => <li key={i}>{m}</li>)}</ul> : <span className="muted">No mistakes recorded.</span>}
                     </td>
                   </tr>

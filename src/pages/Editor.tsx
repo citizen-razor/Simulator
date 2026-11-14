@@ -5,7 +5,7 @@ import { api, streamAi, type AiProgress } from "../api";
 import { ElementInspector, ScenarioInspector, ScreenInspector, VariablesPanel } from "../components/Inspector";
 import { EditScreen } from "../components/ScreenView";
 import { prepareImage } from "../lib/media";
-import { navigate } from "../router";
+import { navigate, setLeaveGuard } from "../router";
 
 type Selection =
   | { kind: "screen" }
@@ -84,18 +84,26 @@ export default function Editor({ id }: { id: string }) {
   }, []);
 
   const dirty = !!sim && JSON.stringify(sim) !== savedJson;
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
+  useEffect(() => {
+    setLeaveGuard(() => !dirtyRef.current || confirm("You have unsaved changes. Leave without saving?"));
+    return () => setLeaveGuard(null);
+  }, []);
   const issues = useMemo(() => (sim ? lintSimulation(sim) : []), [sim]);
 
-  const save = useCallback(async () => {
-    if (!sim) return;
+  const save = useCallback(async (): Promise<boolean> => {
+    if (!sim) return false;
     setSaving(true);
     setError("");
     try {
       const saved = await api.save(sim);
       setSim(saved);
       setSavedJson(JSON.stringify(saved));
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -200,8 +208,8 @@ export default function Editor({ id }: { id: string }) {
   };
 
   const goPlay = async (path: string) => {
-    if (dirty) await save();
-    navigate(path);
+    if (dirty && !(await save())) return; // stay put if saving failed
+    navigate(path, { force: true });
   };
 
   // ------------------------------------------------------------ layout
