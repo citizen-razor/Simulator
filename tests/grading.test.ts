@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import sample from "../samples/helpdesk.json";
 import { createSession, interact, scoreSession, type Mode, type SessionState } from "../shared/engine";
-import { evaluateObjectives, finalScore, gradeSession, resolveScheme, timeLeft, unboundChecks } from "../shared/grading";
+import { evaluateObjectives, finalScore, gradeSession, resolveScheme, settleUnmarked, timeLeft, unboundChecks } from "../shared/grading";
 import { GradingSchemeSchema, STANDARD_SCHEME, type GradingScheme } from "../shared/library";
 import { SimulationSchema, type Simulation } from "../shared/schema";
 
@@ -50,7 +50,7 @@ describe("grading schemes", () => {
 
   it("applies the scheme's penalties, rubric, bindings and pending manual marks", () => {
     const sim = load();
-    sim.grading = { schemeId: "support-rubric", bindings: [{ itemId: "resolved", conditions: [{ var: "t1042_status", op: "eq", value: "Resolved" }] }] };
+    sim.grading = { schemeId: "support-rubric", bindings: [{ itemId: "resolved", conditions: [{ var: "t1042_status", op: "eq", value: "Resolved" }] }], trainerMarking: true };
     const s = run(sim, createSession(sim, "resolve-printer", T0), "scenario", [...perfect.slice(0, 3), ["dash-new"], ["nt-back"], ...perfect.slice(3)]);
     const scheme = resolveScheme(sim, "resolve-printer", [rubricScheme]);
     expect(scheme.id).toBe("support-rubric");
@@ -64,6 +64,33 @@ describe("grading schemes", () => {
     // Trainer marks the manual criterion as met: rubric 4/5 = 80 % → 60×.5 + 80×.5 = 70 → passes at 70.
     const marked = finalScore({ ...g, rubric: g.rubric.map((c) => (c.id === "tone" ? { ...c, met: true } : c)) }, true);
     expect(marked).toEqual({ score: 70, passed: true, pendingManual: 0 });
+  });
+
+  it("skips trainer-marked criteria unless the builder turns trainer marking on, so results are final at once", () => {
+    const sim = load();
+    sim.grading = { schemeId: "support-rubric", bindings: [{ itemId: "resolved", conditions: [{ var: "t1042_status", op: "eq", value: "Resolved" }] }], trainerMarking: false };
+    const s = run(sim, createSession(sim, "resolve-printer", T0), "scenario", [...perfect.slice(0, 3), ["dash-new"], ["nt-back"], ...perfect.slice(3)]);
+    const g = gradeSession(sim, s, resolveScheme(sim, "resolve-printer", [rubricScheme]), T0 + 60_000);
+    expect(g.rubric.map((c) => c.id)).toEqual(["done", "clean", "resolved"]);
+    expect(g.pendingManual).toBe(0);
+    expect(g.score).toBe(68); // rubric 3 of 4 weight = 75 % → 60×.5 + 75×.5
+    expect(g.passed).toBe(false); // below the pass mark of 70, decided straight away
+  });
+
+  it("settles attempts still waiting for a trainer", () => {
+    const grading = {
+      schemeId: "x", schemeName: "X", passScore: 70, masteryScore: 90, pointsScore: 60, rubricWeight: 50, overtimeSec: 0,
+      rubric: [
+        { id: "done", label: "Done", weight: 2, manual: false, met: true },
+        { id: "tone", label: "Tone", weight: 1, manual: true, met: null },
+        { id: "notes", label: "Notes", weight: 1, manual: true, met: false },
+      ],
+    };
+    const settled = settleUnmarked({ grading, completed: true, score: 80, passed: null as boolean | null });
+    expect(settled.grading!.rubric.map((c) => c.id)).toEqual(["done", "notes"]); // a marked one stays
+    expect(settled).toMatchObject({ score: 63, passed: false }); // rubric 2/3 → 60×.5 + 66.7×.5 = 63.3
+    const untouched = { grading: { ...grading, rubric: grading.rubric.slice(0, 1) }, completed: true, score: 80, passed: true };
+    expect(settleUnmarked(untouched)).toBe(untouched);
   });
 
   it("charges overtime per started minute and fails the time criterion", () => {

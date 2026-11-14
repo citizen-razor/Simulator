@@ -106,7 +106,7 @@ describe("tags and grading schemes travel with exports", () => {
   async function exported() {
     const sim = SimulationSchema.parse(structuredClone(sample));
     sim.tagIds = ["tag-src"];
-    sim.grading = { schemeId: "scheme-src", bindings: [binding] };
+    sim.grading = { schemeId: "scheme-src", bindings: [binding], trainerMarking: false };
     const { bundle } = await buildBundle(sim, memoryStore().read, source);
     return JSON.parse(JSON.stringify(bundle));
   }
@@ -122,7 +122,7 @@ describe("tags and grading schemes travel with exports", () => {
   it("keeps everything when imported into the same installation", async () => {
     const r = await importBundle(await exported(), memoryStore().save, "x", { ...source, canCreate: false, makeId });
     expect(r.simulation.tagIds).toEqual(["tag-src"]);
-    expect(r.simulation.grading).toEqual({ schemeId: "scheme-src", bindings: [binding] });
+    expect(r.simulation.grading).toEqual({ schemeId: "scheme-src", bindings: [binding], trainerMarking: false });
     expect(r.created).toEqual({ taxonomy: null, schemes: [], personas: [], personaTemplates: [] });
   });
 
@@ -147,7 +147,7 @@ describe("tags and grading schemes travel with exports", () => {
   it("drops what's missing for non-admins, with warnings", async () => {
     const r = await importBundle(await exported(), memoryStore().save, "x", { taxonomy: { topics: [] }, schemes: [], canCreate: false, makeId });
     expect(r.simulation.tagIds).toEqual([]);
-    expect(r.simulation.grading).toEqual({ schemeId: null, bindings: [] });
+    expect(r.simulation.grading).toEqual({ schemeId: null, bindings: [], trainerMarking: false });
     expect(r.created).toEqual({ taxonomy: null, schemes: [], personas: [], personaTemplates: [] });
     expect(r.warnings.join(" ")).toMatch(/1 tag .* removed\. The Admin-Builder can import/);
     expect(r.warnings.join(" ")).toMatch(/"Support assessment" isn't in this library, so Standard grading is used instead\. The Admin-Builder/);

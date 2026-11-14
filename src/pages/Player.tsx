@@ -21,7 +21,7 @@ import { MAIN_PATH_ID, scenarioPaths, type Simulation, type SimElement, type Ste
 import { api } from "../api";
 import { PlayScreen } from "../components/ScreenView";
 import { navigate } from "../router";
-import { evaluateObjectives, gradeSession, resolveScheme, timeLeft, type GradeResult } from "../../shared/grading";
+import { activeRubric, evaluateObjectives, gradeSession, resolveScheme, timeLeft, type GradeResult } from "../../shared/grading";
 import { STANDARD_SCHEME, type GradingScheme } from "../../shared/library";
 import { sessionPersonaVariables, type PersonaLibrary } from "../../shared/personas";
 import { meetsRequirement, REQUIREMENT_TEXT, type Assignment } from "../../shared/assignments";
@@ -322,7 +322,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                       {assignment.requirement !== "complete" && mode === "guided" && " Guided runs are practice; switch to Scenario mode to count."}
                     </p>
                   )}
-                  <GradingInfo scheme={scheme} />
+                  <GradingInfo scheme={scheme} rubric={activeRubric(sim, scheme)} />
                 </section>
               )}
 
@@ -523,7 +523,7 @@ function RecordingPanel({ scenarioTitle, steps, onRemove, onSave, onCancel }: {
 }
 
 /** Tells the trainee up front how this run is graded. */
-function GradingInfo({ scheme }: { scheme: GradingScheme }) {
+function GradingInfo({ scheme, rubric }: { scheme: GradingScheme; rubric: GradingScheme["rubric"] }) {
   const p = scheme.points;
   return (
     <details className="grading-info">
@@ -533,10 +533,10 @@ function GradingInfo({ scheme }: { scheme: GradingScheme }) {
         {p.timeLimitSec !== null && (
           <li>Time limit {formatTime(p.timeLimitSec)}; −{p.overtimePenaltyPerMin} per minute over.</li>
         )}
-        {scheme.rubric.length > 0 && (
+        {rubric.length > 0 && (
           <li>
             {scheme.rubricWeight > 0 ? `${scheme.rubricWeight}% of the score comes from:` : "Also assessed:"}
-            <ul>{scheme.rubric.map((c) => <li key={c.id}>{c.label}</li>)}</ul>
+            <ul>{rubric.map((c) => <li key={c.id}>{c.label}{c.check.type === "manual" ? " (marked by a trainer afterwards)" : ""}</li>)}</ul>
           </li>
         )}
         <li>Pass mark {p.passScore}; {p.masteryScore}+ without help counts as mastered.</li>

@@ -5,8 +5,10 @@
  *
  *   points  100 for completion (partial runs by progress), minus the scheme's error and
  *           hint penalties, minus the overtime penalty past the time limit (0–100)
- *   rubric  % of rubric weight met. Criteria a trainer must mark ("manual") count once
- *           marked; until then the score is provisional and pass/fail is unknown (null).
+ *   rubric  % of rubric weight met. Criteria a trainer must mark ("manual") only count in
+ *           simulations whose builder turned on trainer marking; there they count once
+ *           marked, and until then the score is provisional and pass/fail is unknown (null).
+ *           Everywhere else they're skipped, so results never wait on another person.
  *   passed  completed AND final score ≥ the scheme's pass mark
  *
  * Open-world objectives use the same checks but are just a live checklist, never scored.
@@ -29,6 +31,24 @@ export function resolveScheme(sim: Simulation, scenarioId: string | null, librar
   const find = (id: string | null | undefined) => (id ? library.find((s) => s.id === id) : undefined);
   const sc = getScenario(sim, scenarioId);
   return find(sc?.gradingSchemeId) ?? find(sim.grading.schemeId) ?? find(DEFAULT_SCHEME_ID) ?? STANDARD_SCHEME;
+}
+
+/** The rubric criteria that count in this simulation: trainer-marked ones only if the builder turned them on. */
+export function activeRubric(sim: Pick<Simulation, "grading">, scheme: GradingScheme): Criterion[] {
+  return sim.grading.trainerMarking ? scheme.rubric : scheme.rubric.filter((c) => c.check.type !== "manual");
+}
+
+/**
+ * For attempts saved while trainer marking was on (or before it was optional): drop the
+ * trainer-marked criteria still waiting, and settle the score and pass/fail without them.
+ */
+export function settleUnmarked<A extends Pick<Attempt, "grading" | "completed" | "score" | "passed">>(a: A): A {
+  const g = a.grading;
+  if (!g || !g.rubric.some((c) => c.manual && c.met === null)) return a;
+  const rubric = g.rubric.filter((c) => !(c.manual && c.met === null));
+  const grading = { ...g, rubric };
+  const { score, passed } = finalScore(grading, a.completed);
+  return { ...a, grading, score, passed };
 }
 
 /** A criterion's or objective's check, with this simulation's screen/state targets applied. */
@@ -125,7 +145,7 @@ export function gradeSession(sim: Simulation, state: SessionState, scheme: Gradi
   const overtimeSec = limit !== null ? Math.max(0, ctx.durationSec - limit) : 0;
   const overtimePenalty = Math.ceil(overtimeSec / 60) * scheme.points.overtimePenaltyPerMin;
   const pointsScore = Math.max(0, base.score - overtimePenalty);
-  const rubric = scheme.rubric.map((c: Criterion) => ({
+  const rubric = activeRubric(sim, scheme).map((c: Criterion) => ({
     id: c.id,
     label: c.label,
     weight: c.weight,

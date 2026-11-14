@@ -44,6 +44,7 @@ describe("points breakdown", () => {
 
   it("weights the points part and shows rubric criteria, including ones awaiting marking", () => {
     const sim = load();
+    sim.grading.trainerMarking = true;
     const scheme = GradingSchemeSchema.parse({
       id: "r", name: "R", points: { errorPenalty: 20, hintPenalty: 0, timeLimitSec: null, overtimePenaltyPerMin: 0, passScore: 70, masteryScore: 90 },
       rubricWeight: 40,

@@ -165,7 +165,7 @@ const CHECK_LABEL: Record<CheckType, string> = {
   coverage: "Visited N % of screens",
   screen: "Reached a specific screen",
   state: "System ends in a specific state",
-  manual: "Marked by a trainer",
+  manual: "Marked by a trainer (only where a simulation turns this on)",
 };
 const PER_SIM_NOTE = "Which screen/state is set per simulation, in the editor's Settings.";
 

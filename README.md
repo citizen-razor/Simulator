@@ -154,7 +154,7 @@ tags, personas and schemes. Learners and Leaders don't see the page.
   - **Points:** penalty per error and per hint, an optional time limit with an overtime
     penalty, a pass mark and a mastery mark.
   - **Rubric:** weighted criteria, each checked automatically or marked by a trainer
-    afterwards. Automatic checks are: completed the task, at most N errors, no hints,
+    afterwards (only counted where a builder turns trainer marking on). Automatic checks are: completed the task, at most N errors, no hints,
     within the time limit, reached a screen, or the system ends in a given state.
   - **Rubric weight:** sets how much of the final score comes from the rubric.
   - **Open-world objectives:** an optional checklist for trainees exploring freely; it's
@@ -216,9 +216,14 @@ With the Standard scheme, scenario attempts start at 100: **−10 per error**, *
 An incomplete run scores by the share of steps completed. Other schemes change these
 numbers, add a time limit, and/or blend in a rubric:
 `final = points × (100 − rubric weight)% + rubric % met × rubric weight%`. Trainees can open
-"How you're graded" in the Player to see the rules for their run. If a rubric has
-trainer-marked criteria, the score is provisional and marked "⏳ To mark" on the Results
-page until an Admin-Builder marks them; then the score and pass/fail update. Every Guided
+"How you're graded" in the Player to see the rules for their run.
+
+**Results never wait on another person unless a builder chooses that.** A rubric can include
+trainer-marked criteria, but they only count in simulations where the builder ticks
+**Include trainer-marked criteria** (editor → Settings → Grading); it's off by default.
+When it's off, those criteria are skipped and every score and pass/fail is final as soon as
+the run ends. Older results that were still waiting are settled the same way. When it's on, the score is provisional
+and marked "⏳ To mark" on the Results page until an Admin-Builder marks them. Every Guided
 and Scenario run is saved under the signed-in person's account. Results (score, mistakes,
 time, assisted or not, path taken) appear on the **Results** page for Admin-Builders (everyone)
 and leaders (their team), and on each person's own **My progress**.

@@ -118,7 +118,7 @@ export default function Create() {
         tagIds: [],
         randomData: [],
         personas: [],
-        grading: { schemeId: null, bindings: [] },
+        grading: { schemeId: null, bindings: [], trainerMarking: false },
       });
       navigate(`/edit/${sim.id}`);
     } catch (e) {

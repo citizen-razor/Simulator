@@ -17,6 +17,11 @@ export function SimSettings({ sim, taxonomy, schemes, personaLib, update }: {
   update: (fn: (d: Simulation) => void, key?: string) => void;
 }) {
   const scheme = schemes?.find((s) => s.id === (sim.grading.schemeId ?? DEFAULT_SCHEME_ID)) ?? schemes?.find((s) => s.id === DEFAULT_SCHEME_ID);
+  // Trainer-marked criteria in any scheme this simulation uses (its own or a scenario's).
+  const usedSchemes = schemes
+    ? [scheme, ...sim.scenarios.map((sc) => schemes.find((s) => s.id === sc.gradingSchemeId))].filter((s): s is GradingScheme => !!s)
+    : [];
+  const manualCriteria = [...new Set(usedSchemes.flatMap((s) => s.rubric.filter((c) => c.check.type === "manual").map((c) => `"${c.label || "unnamed"}"`)))];
   const bindable = scheme ? [...scheme.rubric, ...scheme.objectives].filter((i) => BINDABLE_CHECKS.includes(i.check.type)) : [];
   const missing = scheme ? unboundChecks(sim, scheme) : [];
   const knownTags = new Set(taxonomy?.topics.flatMap((t) => t.tags.map((x) => x.id)) ?? []);
@@ -135,6 +140,23 @@ export function SimSettings({ sim, taxonomy, schemes, personaLib, update }: {
           )}
           {missing.length > 0 && (
             <div className="alert warn small">Not set up yet, so these can never be met: {missing.join(", ")}.</div>
+          )}
+          {(manualCriteria.length > 0 || sim.grading.trainerMarking) && (
+            <div className="trainer-marking">
+              <label className="check-line">
+                <input
+                  type="checkbox"
+                  checked={sim.grading.trainerMarking}
+                  onChange={(e) => update((d) => { d.grading.trainerMarking = e.target.checked; })}
+                />
+                Include trainer-marked criteria
+              </label>
+              <small className="muted">
+                {sim.grading.trainerMarking
+                  ? `Results stay provisional, with no pass or fail, until an Admin-Builder marks ${manualCriteria.length ? manualCriteria.join(", ") : "them"} on Results.`
+                  : `Off: ${manualCriteria.join(", ")} ${manualCriteria.length === 1 ? "is" : "are"} skipped, so every result is final straight away. Turn this on only if someone will mark them.`}
+              </small>
+            </div>
           )}
         </>
       )}

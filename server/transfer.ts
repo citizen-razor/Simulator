@@ -287,7 +287,7 @@ function mapSchemes(sim: Simulation, file: Bundle["library"], opts: ImportOption
   if (sim.grading.schemeId) {
     const fromFile = file.schemes.find((s) => s.id === sim.grading.schemeId);
     const target = resolve(sim.grading.schemeId);
-    if (!target) sim.grading = { schemeId: null, bindings: [] };
+    if (!target) sim.grading = { schemeId: null, bindings: [], trainerMarking: false };
     else {
       if (fromFile && target.id !== fromFile.id) sim.grading.bindings = remapBindings(sim.grading.bindings, fromFile, target, warnings);
       sim.grading.schemeId = target.id;

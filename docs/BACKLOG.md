@@ -101,6 +101,9 @@ Nothing right now.
   Performance
 - ✅ No dead ends: things a role can't use are hidden rather than shown locked; links to
   pages you can't open go back to the Library (or your own progress)
+- ✅ No waiting on people: trainer-marked criteria are skipped unless a builder turns on
+  "Include trainer-marked criteria" for a simulation (off by default); results waiting for
+  marking in simulations without it are settled automatically
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

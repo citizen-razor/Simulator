@@ -188,10 +188,18 @@ export const SimulationSchema = z.object({
   personas: z.array(PersonaLinkSchema).default([]),
   /** Random value generators for variables, applied at the start of every run (see shared/random.ts). */
   randomData: z.array(RandomVarSchema).default([]),
-  /** Grading scheme from the grading library (null = Standard), plus per-simulation check targets. */
+  /**
+   * Grading scheme from the grading library (null = Standard), plus per-simulation check targets.
+   * trainerMarking: count the scheme's trainer-marked criteria. Off (the default) skips them, so
+   * every result is final at once instead of waiting for someone to mark it.
+   */
   grading: z
-    .object({ schemeId: z.string().nullable().default(null), bindings: z.array(BindingSchema).default([]) })
-    .default({ schemeId: null, bindings: [] }),
+    .object({
+      schemeId: z.string().nullable().default(null),
+      bindings: z.array(BindingSchema).default([]),
+      trainerMarking: z.boolean().default(false),
+    })
+    .default({ schemeId: null, bindings: [], trainerMarking: false }),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
 });

@@ -21,6 +21,7 @@ import {
 } from "../shared/library";
 import { findUnusedImages, type StoredFile, type UsageReport } from "./cleanup";
 import { AssignmentSchema, type Assignment } from "../shared/assignments";
+import { settleUnmarked } from "../shared/grading";
 import {
   PersonaLibrarySchema,
   PersonaSchema,
@@ -179,14 +180,29 @@ export async function readAsset(id: string): Promise<{ data: Buffer; mediaType: 
   return { data, mediaType };
 }
 
-export async function listAttempts(simulationId?: string): Promise<Attempt[]> {
-  let all: Attempt[] = [];
+/** The attempts file as stored. */
+async function readAllAttempts(): Promise<Attempt[]> {
   try {
-    all = AttemptSchema.array().parse(JSON.parse(await fs.readFile(ATTEMPTS_FILE(), "utf8")));
+    return AttemptSchema.array().parse(JSON.parse(await fs.readFile(ATTEMPTS_FILE(), "utf8")));
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+    return [];
   }
-  return simulationId ? all.filter((a) => a.simulationId === simulationId) : all;
+}
+
+export async function listAttempts(simulationId?: string): Promise<Attempt[]> {
+  const all = await readAllAttempts();
+  const mine = simulationId ? all.filter((a) => a.simulationId === simulationId) : all;
+  return settleWhereNoMarking(mine);
+}
+
+/** Attempts in simulations without trainer marking never wait: settle any unmarked criteria. */
+async function settleWhereNoMarking(attempts: Attempt[]): Promise<Attempt[]> {
+  const waiting = new Set(attempts.filter((a) => a.grading?.rubric.some((c) => c.manual && c.met === null)).map((a) => a.simulationId));
+  if (!waiting.size) return attempts;
+  const marking = new Map<string, boolean>();
+  for (const id of waiting) marking.set(id, await getSimulation(id).then((s) => s.grading.trainerMarking).catch(() => false));
+  return attempts.map((a) => (waiting.has(a.simulationId) && !marking.get(a.simulationId) ? settleUnmarked(a) : a));
 }
 
 let attemptsLock: Promise<unknown> = Promise.resolve();
@@ -194,10 +210,11 @@ export function addAttempt(input: unknown): Promise<Attempt> {
   const attempt = AttemptSchema.parse({ ...(input as object), id: newId("att") });
   // Serialise writes so two attempts finishing together don't overwrite each other.
   const job = attemptsLock.then(async () => {
-    const all = await listAttempts();
-    all.unshift(attempt);
+    const all = await readAllAttempts();
+    const saved = (await settleWhereNoMarking([attempt]))[0];
+    all.unshift(saved);
     await writeAtomic(ATTEMPTS_FILE(), JSON.stringify(all.slice(0, 5000), null, 2));
-    return attempt;
+    return saved;
   });
   attemptsLock = job.catch(() => undefined);
   return job;
@@ -266,7 +283,7 @@ export async function deleteScheme(schemeId: string) {
 /** Change one saved attempt (used for trainer marking). Serialised with other attempt writes. */
 export function updateAttempt(attemptId: string, fn: (a: Attempt) => Attempt): Promise<Attempt> {
   const job = attemptsLock.then(async () => {
-    const all = await listAttempts();
+    const all = await readAllAttempts();
     const i = all.findIndex((a) => a.id === attemptId);
     if (i === -1) throw new HttpError(404, "Attempt not found");
     all[i] = AttemptSchema.parse(fn(all[i]));
