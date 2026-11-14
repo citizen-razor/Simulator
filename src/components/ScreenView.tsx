@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
 import { fieldVar, interpolate, isVisible } from "../../shared/engine";
+import { snapRect } from "../../shared/layout";
 import type { Rect, Screen, SimElement } from "../../shared/schema";
 import { assetUrl } from "../api";
 
@@ -164,6 +165,7 @@ const clampRect = (r: Rect): Rect => {
 export function EditScreen({ screen, selectedId, onSelect, onRectChange, onCreate }: EditScreenProps) {
   const frame = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
+  const [guides, setGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
 
   const pct = (e: { clientX: number; clientY: number }) => {
     const b = frame.current!.getBoundingClientRect();
@@ -188,13 +190,24 @@ export function EditScreen({ screen, selectedId, onSelect, onRectChange, onCreat
       const dx = p.x - drag.startX;
       const dy = p.y - drag.startY;
       const r = drag.orig;
-      onRectChange(drag.id, clampRect(drag.kind === "move" ? { ...r, x: r.x + dx, y: r.y + dy } : { ...r, w: r.w + dx, h: r.h + dy }));
+      const raw = clampRect(drag.kind === "move" ? { ...r, x: r.x + dx, y: r.y + dy } : { ...r, w: r.w + dx, h: r.h + dy });
+      if (e.altKey) {
+        // Hold Alt (Option on Mac) for free positioning.
+        setGuides({ x: [], y: [] });
+        onRectChange(drag.id, raw);
+      } else {
+        const others = screen.elements.filter((el) => el.id !== drag.id).map((el) => el.rect);
+        const snapped = snapRect(raw, others, drag.kind);
+        setGuides(snapped.guides);
+        onRectChange(drag.id, snapped.rect);
+      }
     }
   };
 
   const onUp = () => {
     if (drag?.kind === "draw" && drag.rect.w > 1 && drag.rect.h > 1) onCreate(clampRect(drag.rect));
     setDrag(null);
+    setGuides({ x: [], y: [] });
   };
 
   return (
@@ -237,6 +250,8 @@ export function EditScreen({ screen, selectedId, onSelect, onRectChange, onCreat
           </div>
         ))}
         {drag?.kind === "draw" && <div className="draw-rect" style={rectStyle(drag.rect)} />}
+        {guides.x.map((x) => <div key={`gx${x}`} className="guide guide-x" style={{ left: `${x}%` }} />)}
+        {guides.y.map((y) => <div key={`gy${y}`} className="guide guide-y" style={{ top: `${y}%` }} />)}
       </Frame>
     </div>
   );

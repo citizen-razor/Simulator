@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { lintSimulation, newId } from "../../shared/engine";
+import { duplicateElement, duplicateScreen, moveScreen, renameElement, renameScreen, renameVariable } from "../../shared/refactor";
 import { ElementKinds, FIELD_KINDS, type ElementKind, type Rect, type SimElement, type Simulation } from "../../shared/schema";
 import { api, streamAi, type AiProgress } from "../api";
 import { ElementInspector, ScenarioInspector, ScreenInspector, VariablesPanel } from "../components/Inspector";
@@ -65,20 +66,30 @@ export default function Editor({ id }: { id: string }) {
       .catch((e) => setError(e.message));
   }, [id]);
 
-  /** Apply a change. Rapid edits with the same key (e.g. typing in one field) share one undo entry. */
+  /** Remember `prev` for Undo. Rapid edits with the same key (e.g. typing in one field) share one undo entry. */
+  const pushUndo = (prev: Simulation, key: string) => {
+    const u = undo.current;
+    const now = Date.now();
+    if (key !== u.lastKey || now - u.lastAt > 1500) u.stack = [...u.stack.slice(-49), prev];
+    u.lastKey = key;
+    u.lastAt = now;
+  };
+
+  /** Apply a change. */
   const update = useCallback((fn: (draft: Simulation) => void, key = Math.random().toString()) => {
     setSim((prev) => {
       if (!prev) return prev;
-      const u = undo.current;
-      const now = Date.now();
-      if (key !== u.lastKey || now - u.lastAt > 1500) u.stack = [...u.stack.slice(-49), prev];
-      u.lastKey = key;
-      u.lastAt = now;
+      pushUndo(prev, key);
       const next = structuredClone(prev);
       fn(next);
       return next;
     });
   }, []);
+
+  // Keyboard shortcuts call into functions defined further down; this ref always holds the latest handler.
+  const keyHandler = useRef<((e: KeyboardEvent) => void) | null>(null);
+  const clipboard = useRef<{ el: SimElement; screenId: string } | null>(null);
+  const [notice, setNotice] = useState("");
 
   const doUndo = useCallback(() => {
     const prev = undo.current.stack.pop();
@@ -113,18 +124,7 @@ export default function Editor({ id }: { id: string }) {
   }, [sim]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-        e.preventDefault();
-        save();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === "z" && !isTyping()) {
-        e.preventDefault();
-        doUndo();
-      } else if ((e.key === "Delete" || e.key === "Backspace") && sel.kind === "element" && !isTyping()) {
-        e.preventDefault();
-        deleteElement(sel.id);
-      }
-    };
+    const onKey = (e: KeyboardEvent) => keyHandler.current?.(e);
     const onUnload = (e: BeforeUnloadEvent) => {
       if (dirty) e.preventDefault();
     };
@@ -141,6 +141,95 @@ export default function Editor({ id }: { id: string }) {
 
   const screen = sim.screens.find((s) => s.id === screenId) ?? sim.screens[0];
   const selectedEl = sel.kind === "element" ? screen.elements.find((e) => e.id === sel.id) : undefined;
+
+  /**
+   * Apply a change that may be refused (renames, duplicates). Runs on a copy first, so a
+   * refused change leaves everything untouched. Returns the function's result, or an
+   * Error describing why it was refused.
+   */
+  function change<T>(fn: (draft: Simulation) => T, key = Math.random().toString()): T | Error {
+    const next = structuredClone(sim!);
+    try {
+      const out = fn(next);
+      pushUndo(sim!, key);
+      setSim(next);
+      return out;
+    } catch (e) {
+      return e instanceof Error ? e : new Error(String(e));
+    }
+  }
+
+  const flash = (text: string) => {
+    setNotice(text);
+    setTimeout(() => setNotice((n) => (n === text ? "" : n)), 2500);
+  };
+
+  const duplicateSelected = () => {
+    if (!selectedEl) return;
+    const out = change((d) => duplicateElement(d, selectedEl, screen.id));
+    if (out instanceof Error) return setError(out.message);
+    setSel({ kind: "element", id: out });
+  };
+
+  const copySelected = () => {
+    if (!selectedEl) return;
+    clipboard.current = { el: structuredClone(selectedEl), screenId: screen.id };
+    flash(`Copied "${selectedEl.label}". Press Ctrl+V on any screen to paste.`);
+  };
+
+  const paste = () => {
+    const clip = clipboard.current;
+    if (!clip) return;
+    // Same screen: offset so the copy is visible. Another screen: keep the same position.
+    const out = change((d) => duplicateElement(d, clip.el, screen.id, clip.screenId === screen.id ? 2 : 0));
+    if (out instanceof Error) return setError(out.message);
+    setSel({ kind: "element", id: out });
+  };
+
+  const nudge = (dx: number, dy: number) => {
+    if (!selectedEl) return;
+    const r = selectedEl.rect;
+    const rect = {
+      ...r,
+      x: Math.round(Math.min(100 - r.w, Math.max(0, r.x + dx)) * 10) / 10,
+      y: Math.round(Math.min(100 - r.h, Math.max(0, r.y + dy)) * 10) / 10,
+    };
+    update((d) => {
+      const el = d.screens.find((s) => s.id === screen.id)!.elements.find((e) => e.id === selectedEl.id);
+      if (el) el.rect = rect;
+    }, `nudge-${selectedEl.id}`);
+  };
+
+  keyHandler.current = (e: KeyboardEvent) => {
+    const mod = e.metaKey || e.ctrlKey;
+    const typing = isTyping();
+    const textSelected = !!window.getSelection()?.toString();
+    if (mod && e.key === "s") {
+      e.preventDefault();
+      save();
+    } else if (typing) {
+      return; // leave normal text editing alone
+    } else if (mod && e.key === "z") {
+      e.preventDefault();
+      doUndo();
+    } else if (mod && e.key === "d" && selectedEl) {
+      e.preventDefault();
+      duplicateSelected();
+    } else if (mod && e.key === "c" && selectedEl && !textSelected) {
+      e.preventDefault();
+      copySelected();
+    } else if (mod && e.key === "v" && clipboard.current) {
+      e.preventDefault();
+      paste();
+    } else if ((e.key === "Delete" || e.key === "Backspace") && selectedEl) {
+      e.preventDefault();
+      deleteElement(selectedEl.id);
+    } else if (e.key.startsWith("Arrow") && selectedEl) {
+      e.preventDefault();
+      const step = e.shiftKey ? 2 : 0.5;
+      nudge(e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0, e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0);
+    }
+  };
 
   // ------------------------------------------------------------ mutations
 
@@ -245,7 +334,22 @@ export default function Editor({ id }: { id: string }) {
 
   const inspector = (() => {
     if (sel.kind === "element" && selectedEl) {
-      return <ElementInspector el={selectedEl} sim={sim} onChange={updateElement} onDelete={() => deleteElement(selectedEl.id)} />;
+      return (
+        <ElementInspector
+          el={selectedEl}
+          sim={sim}
+          onChange={updateElement}
+          onDelete={() => deleteElement(selectedEl.id)}
+          onDuplicate={duplicateSelected}
+          onCopy={copySelected}
+          onRename={(next) => {
+            const out = change((d) => renameElement(d, selectedEl.id, next));
+            if (out instanceof Error) return out.message;
+            setSel({ kind: "element", id: next });
+            return null;
+          }}
+        />
+      );
     }
     if (sel.kind === "scenario") {
       const sc = sim.scenarios.find((s) => s.id === sel.id);
@@ -267,7 +371,16 @@ export default function Editor({ id }: { id: string }) {
       }
     }
     if (sel.kind === "variables") {
-      return <VariablesPanel sim={sim} onChange={(v) => update((d) => { d.variables = v; }, "vars")} />;
+      return (
+        <VariablesPanel
+          sim={sim}
+          onChange={(v) => update((d) => { d.variables = v; }, "vars")}
+          onRename={(oldName, next) => {
+            const out = change((d) => renameVariable(d, oldName, next));
+            return out instanceof Error ? out.message : null;
+          }}
+        />
+      );
     }
     if (sel.kind === "settings") {
       return (
@@ -303,6 +416,18 @@ export default function Editor({ id }: { id: string }) {
         }}
         onMakeStart={() => update((d) => { d.startScreenId = screen.id; })}
         onSelectElement={(eid) => setSel({ kind: "element", id: eid })}
+        onRename={(next) => {
+          const out = change((d) => renameScreen(d, screen.id, next));
+          if (out instanceof Error) return out.message;
+          setScreenId(next);
+          return null;
+        }}
+        onDuplicate={() => {
+          const out = change((d) => duplicateScreen(d, screen.id));
+          if (out instanceof Error) return setError(out.message);
+          setScreenId(out);
+          setSel({ kind: "screen" });
+        }}
       />
     );
   })();
@@ -333,7 +458,7 @@ export default function Editor({ id }: { id: string }) {
             𝑥 Variables <span className="count">{sim.variables.length}</span>
           </button>
           <h4>Screens</h4>
-          {sim.screens.map((s) => (
+          {sim.screens.map((s, i) => (
             <button
               key={s.id}
               className={`nav-item ${s.id === screen.id && (sel.kind === "screen" || sel.kind === "element") ? "on" : ""}`}
@@ -341,6 +466,22 @@ export default function Editor({ id }: { id: string }) {
             >
               {s.imageAssetId ? "▣" : "▢"} {s.name}
               {s.id === sim.startScreenId && <span className="count">start</span>}
+              {s.id === screen.id && sim.screens.length > 1 && (
+                <span className="reorder">
+                  <span
+                    role="button"
+                    aria-label="Move screen up"
+                    className={i === 0 ? "off" : ""}
+                    onClick={(e) => { e.stopPropagation(); update((d) => moveScreen(d, s.id, -1)); }}
+                  >↑</span>
+                  <span
+                    role="button"
+                    aria-label="Move screen down"
+                    className={i === sim.screens.length - 1 ? "off" : ""}
+                    onClick={(e) => { e.stopPropagation(); update((d) => moveScreen(d, s.id, 1)); }}
+                  >↓</span>
+                </span>
+              )}
             </button>
           ))}
           <div className="row tight">
@@ -415,7 +556,11 @@ export default function Editor({ id }: { id: string }) {
             onCreate={addElement}
           />
           {alignMsg?.screenId === screen.id && <p className="small center">{alignMsg.text}</p>}
-          <p className="muted small center">Drag on empty space to draw a <b>{drawKind}</b>. Drag an element to move it; use its corner to resize.</p>
+          {notice && <p className="small center">{notice}</p>}
+          <p className="muted small center">Drag on empty space to draw a <b>{drawKind}</b>. Drag an element to move it; use its corner to resize. Boxes snap to each other (hold Alt for free movement).
+            <br />
+            Shortcuts: arrows nudge (Shift for bigger steps) · Ctrl+D duplicate · Ctrl+C / Ctrl+V copy and paste, also between screens · Delete removes · Ctrl+Z undo
+          </p>
         </section>
 
         <aside className="editor-right">{inspector}</aside>

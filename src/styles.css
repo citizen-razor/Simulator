@@ -285,3 +285,11 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .name-gate input { width: 100%; }
 .field.inline { flex-direction: row; align-items: center; gap: 8px; margin: 0; }
 .check-line { display: flex; gap: 8px; align-items: center; margin: 12px 0 4px; cursor: pointer; }
+.guide { position: absolute; pointer-events: none; z-index: 6; background: #e64980; }
+.guide-x { top: 0; bottom: 0; width: 1px; }
+.guide-y { left: 0; right: 0; height: 1px; }
+.reorder { margin-left: auto; display: inline-flex; gap: 2px; }
+.reorder span { padding: 0 4px; border-radius: 4px; color: var(--muted); cursor: pointer; }
+.reorder span:hover { background: var(--surface); color: var(--text); }
+.reorder span.off { opacity: 0.25; pointer-events: none; }
+.nav-item .reorder + .count, .nav-item .count + .reorder { margin-left: 4px; }

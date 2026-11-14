@@ -78,6 +78,12 @@ You can also click **Start blank** or **Build manually from N images** to author
   You review the result before saving, and **Undo** (Ctrl+Z) reverts it.
 - **✦ Align boxes to screenshot** (above the canvas) re-runs the box fine-tuning on the
   current screen, e.g. after you've added controls. It's undoable like any other edit.
+- **Faster editing:** ⧉ Duplicate an element (Ctrl+D) or a whole screen; copy and paste
+  elements, including onto another screen (Ctrl+C / Ctrl+V); nudge with the arrow keys
+  (Shift for bigger steps); reorder screens with the ↑ ↓ arrows on the selected screen.
+  Boxes snap to each other's edges and centres while you drag (hold Alt to place freely).
+- **Renaming** an element, screen or variable id updates every reference to it (steps,
+  navigation, conditions, `{{templates}}`), so nothing breaks.
 - The **⚠ issues** button lists broken references, such as a step pointing at a deleted control.
 - Save with the button or Ctrl+S. If you try to leave with unsaved changes, you'll be asked first.
 
@@ -137,7 +143,8 @@ src/pages/            Library, Create, Editor, Player, Results
 src/components/       ScreenView (renders screens for play and edit), Inspector panels
 src/lib/media.ts      in-browser image resizing and video key-frame extraction
 src/lib/align.ts      draws the grid + numbered boxes for box fine-tuning
-shared/layout.ts      applies fine-tuned boxes (clamping, matching numbers to elements)
+shared/layout.ts      box clamping, fine-tune merging, and snapping
+shared/refactor.ts    safe renames, duplicating, reordering
 samples/              the built-in Helpdesk sample
 tests/                engine and AI-conversion tests
 ```

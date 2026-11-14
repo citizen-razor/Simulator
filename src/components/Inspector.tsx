@@ -1,4 +1,5 @@
 /** Property panels for the editor's right-hand side. Each takes a value and an onChange. */
+import { useEffect, useState } from "react";
 import {
   ActionTypes,
   ConditionOps,
@@ -48,6 +49,44 @@ export function variableNames(sim: Simulation): string[] {
   const names = new Set(sim.variables.map((v) => v.name));
   for (const s of sim.screens) for (const e of s.elements) if (FIELD_KINDS.includes(e.kind)) names.add(e.bindVar || e.id);
   return [...names].sort();
+}
+
+/**
+ * An id/name that other parts of the simulation refer to. Edits are applied on Enter or
+ * when leaving the field, through `onRename`, which updates every reference and returns
+ * an error message if the new name isn't allowed. Escape cancels.
+ */
+export function IdField({ label, value, onRename }: { label: string; value: string; onRename: (next: string) => string | null }) {
+  const [draft, setDraft] = useState(value);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    setDraft(value);
+    setErr("");
+  }, [value]);
+  const commit = () => {
+    const next = draft.trim();
+    if (next === value) return setErr("");
+    setErr(onRename(next) ?? "");
+  };
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input
+        className="mono"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") {
+            setDraft(value);
+            setErr("");
+          }
+        }}
+      />
+      {err ? <small className="text-error">{err}</small> : <small className="muted">Renaming updates every reference to it.</small>}
+    </label>
+  );
 }
 
 function VarInput({ value, onChange, sim, placeholder = "variable" }: { value: string; onChange: (v: string) => void; sim: Simulation; placeholder?: string }) {
@@ -143,14 +182,24 @@ export function RulesEditor({ value, onChange, sim }: { value: Rule[]; onChange:
   );
 }
 
-export function ElementInspector({ el, sim, onChange, onDelete }: { el: SimElement; sim: Simulation; onChange: (e: SimElement) => void; onDelete: () => void }) {
+export function ElementInspector({ el, sim, onChange, onDelete, onRename, onDuplicate, onCopy }: {
+  el: SimElement;
+  sim: Simulation;
+  onChange: (e: SimElement) => void;
+  onDelete: () => void;
+  onRename: (next: string) => string | null;
+  onDuplicate: () => void;
+  onCopy: () => void;
+}) {
   const isField = FIELD_KINDS.includes(el.kind);
   const set = (patch: Partial<SimElement>) => onChange({ ...el, ...patch });
   return (
     <div className="inspector">
       <div className="inspector-head">
         <h3>Element</h3>
-        <code className="muted small">{el.id}</code>
+        <span className="spacer" />
+        <button className="btn sm" onClick={onDuplicate} title="Duplicate (Ctrl+D)">⧉ Duplicate</button>
+        <button className="btn sm ghost" onClick={onCopy} title="Copy, then paste on any screen with Ctrl+V">Copy</button>
       </div>
       <label className="field">
         <span>Label</span>
@@ -163,6 +212,7 @@ export function ElementInspector({ el, sim, onChange, onDelete }: { el: SimEleme
           {ElementKinds.map((k) => <option key={k}>{k}</option>)}
         </select>
       </label>
+      <IdField label="Id" value={el.id} onRename={onRename} />
       <div className="field">
         <span>Position (% of screen)</span>
         <div className="rect-inputs">
@@ -209,7 +259,9 @@ export function ElementInspector({ el, sim, onChange, onDelete }: { el: SimEleme
   );
 }
 
-export function ScreenInspector({ screen, sim, onChange, onDelete, onReplaceImage, onMakeStart, onSelectElement }: {
+export function ScreenInspector({ screen, sim, onChange, onDelete, onReplaceImage, onMakeStart, onSelectElement, onRename, onDuplicate }: {
+  onRename: (next: string) => string | null;
+  onDuplicate: () => void;
   screen: Screen;
   sim: Simulation;
   onChange: (s: Screen) => void;
@@ -222,12 +274,14 @@ export function ScreenInspector({ screen, sim, onChange, onDelete, onReplaceImag
     <div className="inspector">
       <div className="inspector-head">
         <h3>Screen</h3>
-        <code className="muted small">{screen.id}</code>
+        <span className="spacer" />
+        <button className="btn sm" onClick={onDuplicate}>⧉ Duplicate screen</button>
       </div>
       <label className="field">
         <span>Name</span>
         <input value={screen.name} onChange={(e) => onChange({ ...screen, name: e.target.value })} />
       </label>
+      <IdField label="Id" value={screen.id} onRename={onRename} />
       <label className="field">
         <span>Description</span>
         <textarea rows={2} value={screen.description ?? ""} onChange={(e) => onChange({ ...screen, description: e.target.value || undefined })} />
@@ -366,7 +420,11 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
   );
 }
 
-export function VariablesPanel({ sim, onChange }: { sim: Simulation; onChange: (v: Simulation["variables"]) => void }) {
+export function VariablesPanel({ sim, onChange, onRename }: {
+  sim: Simulation;
+  onChange: (v: Simulation["variables"]) => void;
+  onRename: (oldName: string, next: string) => string | null;
+}) {
   const vars = sim.variables;
   const set = (i: number, patch: Partial<Simulation["variables"][number]>) => onChange(vars.map((v, j) => (j === i ? { ...v, ...patch } : v)));
   const undeclared = variableNames(sim).filter((n) => !vars.some((v) => v.name === n));
@@ -382,7 +440,7 @@ export function VariablesPanel({ sim, onChange }: { sim: Simulation; onChange: (
         <tbody>
           {vars.map((v, i) => (
             <tr key={i}>
-              <td><input className="mono" value={v.name} onChange={(e) => set(i, { name: e.target.value })} /></td>
+              <td><VarNameCell value={v.name} onRename={(next) => onRename(v.name, next)} /></td>
               <td><input value={v.initial} onChange={(e) => set(i, { initial: e.target.value })} /></td>
               <td><input value={v.description ?? ""} onChange={(e) => set(i, { description: e.target.value || undefined })} /></td>
               <td><button className="link-btn" onClick={() => onChange(vars.filter((_, j) => j !== i))}>✕</button></td>
@@ -398,5 +456,30 @@ export function VariablesPanel({ sim, onChange }: { sim: Simulation; onChange: (
         </p>
       )}
     </div>
+  );
+}
+
+/** Variable name cell: renames on Enter/blur and updates every use of the variable. */
+function VarNameCell({ value, onRename }: { value: string; onRename: (next: string) => string | null }) {
+  const [draft, setDraft] = useState(value);
+  const [err, setErr] = useState("");
+  useEffect(() => setDraft(value), [value]);
+  const commit = () => {
+    const next = draft.trim();
+    if (next !== value) setErr(onRename(next) ?? "");
+  };
+  return (
+    <>
+      <input
+        className="mono"
+        value={draft}
+        title={err || "Renaming updates every use of this variable"}
+        aria-invalid={!!err}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === "Enter" && commit()}
+      />
+      {err && <small className="text-error">{err}</small>}
+    </>
   );
 }

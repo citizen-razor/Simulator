@@ -54,3 +54,61 @@ export function mergeAlignment(elements: SimElement[], boxes: AlignedBox[]): Ali
   }
   return { rects, notFound };
 }
+
+// ------------------------------------------------------------------ snapping
+
+export interface SnapResult {
+  rect: Rect;
+  /** Positions (in %) of vertical (x) and horizontal (y) guide lines to draw. */
+  guides: { x: number[]; y: number[] };
+}
+
+/**
+ * Snap a box being moved or resized to the edges and centres of other boxes and of
+ * the screen (0, 50, 100). Moving snaps whichever of left/centre/right (top/middle/
+ * bottom) is closest; resizing from the bottom-right corner snaps the right and
+ * bottom edges. `threshold` is in % of the screen.
+ */
+export function snapRect(rect: Rect, others: Rect[], mode: "move" | "resize", threshold = 0.8): SnapResult {
+  const xs = [0, 50, 100, ...others.flatMap((o) => [o.x, o.x + o.w / 2, o.x + o.w])];
+  const ys = [0, 50, 100, ...others.flatMap((o) => [o.y, o.y + o.h / 2, o.y + o.h])];
+
+  // Each candidate: the coordinate on our box, and how the box changes if that coordinate moves by d.
+  const best = (mine: number[], targets: number[]) => {
+    let pick: { d: number; line: number; i: number } | null = null;
+    mine.forEach((m, i) => {
+      for (const t of targets) {
+        const d = t - m;
+        if (Math.abs(d) <= threshold && (!pick || Math.abs(d) < Math.abs(pick.d))) pick = { d, line: t, i };
+      }
+    });
+    return pick as { d: number; line: number; i: number } | null;
+  };
+
+  const out = { ...rect };
+  const guides = { x: [] as number[], y: [] as number[] };
+  if (mode === "move") {
+    const bx = best([rect.x, rect.x + rect.w / 2, rect.x + rect.w], xs);
+    if (bx) {
+      out.x += bx.d;
+      guides.x.push(bx.line);
+    }
+    const by = best([rect.y, rect.y + rect.h / 2, rect.y + rect.h], ys);
+    if (by) {
+      out.y += by.d;
+      guides.y.push(by.line);
+    }
+  } else {
+    const bx = best([rect.x + rect.w], xs);
+    if (bx) {
+      out.w += bx.d;
+      guides.x.push(bx.line);
+    }
+    const by = best([rect.y + rect.h], ys);
+    if (by) {
+      out.h += by.d;
+      guides.y.push(by.line);
+    }
+  }
+  return { rect: clampRect(out), guides };
+}
