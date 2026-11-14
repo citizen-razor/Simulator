@@ -389,3 +389,26 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .topic-bars { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
 .topic-bar { display: grid; grid-template-columns: 180px 1fr 130px; gap: 12px; align-items: center; }
 .topic-bar .progress { height: 8px; }
+.random-data { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 14px; }
+.gen-params { margin-top: 8px; }
+.gen-params .field { margin-bottom: 6px; }
+.samples td { font-family: ui-monospace, monospace; font-size: 12px; padding: 3px 6px; border-bottom: 1px solid var(--border); }
+.run-data .chip { margin-right: 4px; font-family: ui-monospace, monospace; }
+/* ---------- assignments */
+.status.warn { background: var(--warn-soft); color: var(--warn); }
+.small-status { margin-left: 8px; font-size: 11px; }
+.assign-form { margin-bottom: 20px; }
+.assign-form .tag-row input { border: 1px dashed var(--border); border-radius: 99px; padding: 3px 10px; min-width: 200px; }
+.filter-row { justify-content: space-between; margin: 8px 0 12px; }
+.state-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.assignment-list { display: flex; flex-direction: column; gap: 10px; }
+.assignment { display: flex; gap: 16px; align-items: center; margin: 0; }
+.assignment h3 { margin: 6px 0 2px; }
+.assignment p { margin: 2px 0; }
+.assignment-main { flex: 1; min-width: 0; }
+.assignment-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.assignment.overdue { border-left: 4px solid var(--error); }
+.assignment.due-soon { border-left: 4px solid var(--warn); }
+.assignment.done { opacity: 0.85; }
+.assignment-note { background: var(--accent-soft); border-radius: 6px; padding: 6px 8px; margin: 8px 0 0; }
+@media (max-width: 640px) { .assignment { flex-direction: column; align-items: stretch; } }

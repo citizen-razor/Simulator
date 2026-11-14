@@ -87,6 +87,14 @@ You can also click **Start blank** or **Build manually from N images** to author
   (go to a screen, set or toggle a variable, show a message). The first rule whose
   conditions pass runs, so model validation as an early rule, e.g. "if email is empty, show
   an error", followed by a catch-all rule with no conditions.
+- **Random values** (in 𝑥 Variables) give chosen variables fresh, realistic values every
+  run, so trainees learn the process rather than memorising answers. The options are:
+  pick from a list, a number in a range, a pattern such as `TCK-####`, a person's name, or
+  a date near today. Lists can be *linked* so related values stay together (a name and its
+  email). Use the values anywhere with `{{name}}`: labels, instructions, hints, goals, and
+  even expected answers (e.g. "description contains `{{caller}}`" checks against *this
+  run's* caller). Scenarios can switch random values off. Results show the values each
+  attempt used. The sample's ticket numbers and people change every run.
 - **Variables** are the system's memory. Fields store their values in them, rules change
   them, and labels can display them: `Status: {{ticketStatus}}`.
 - **Visible only when…** shows or hides a control based on state, e.g. an error banner.
@@ -154,6 +162,22 @@ page until an admin marks them; then the score and pass/fail update. Before a sc
 (remembered on that device; click the name in the top bar to change it). Results (trainee,
 score, mistakes, time, assisted or not, path taken) are saved and shown on the **Results**
 page, where you can filter by trainee.
+
+### Assignments and "My training"
+
+On **Assignments** (creating needs admin mode), a trainer assigns a scenario to one or more
+trainees. Each assignment has a requirement (**complete** it, guided help allowed; **pass**
+it in Scenario mode; or **master** it without help), an optional due date, and an optional
+note.
+
+Trainees open **My training**, enter their name once per device, and see their assignments,
+most urgent first, with **Start** and **Practise with guidance** buttons. The Player shows
+what's required, and the end-of-run summary says whether the assignment is now complete.
+
+Status is worked out from results: **done**, **awaiting marking**, **overdue**, **due
+soon** (within 3 days), or **to do**. Only attempts made *after* the assignment was given
+count. Names match regardless of capitals and spaces. Assignments also appear on each
+trainee's Progress page.
 
 ### Trainee progress
 
@@ -226,6 +250,8 @@ src/lib/align.ts      draws the grid + numbered boxes for box fine-tuning
 shared/layout.ts      box clamping, fine-tune merging, and snapping
 shared/refactor.ts    safe renames, duplicating, reordering
 shared/progress.ts    per-trainee progress: mastery, trends, trouble spots, topics
+shared/random.ts      random value generators (seeded, reproducible)
+shared/assignments.ts assignment requirements and status
 shared/library.ts     topic/tag and grading-scheme data model
 shared/grading.ts     applies a grading scheme: points, rubric, time limit, objectives
 server/admin.ts       admin PIN check
@@ -276,4 +302,4 @@ actual usage in the Claude Console. Playing and editing simulations makes no AI 
 - Within a path, clicks must follow the step order (field entries can be done in any order).
   Use alternative paths for other valid orders.
 - Single user, local files. Moving to a database and accounts is the main step before hosting.
-- Ideas: timed challenges and pass marks per scenario.
+- See [docs/BACKLOG.md](docs/BACKLOG.md) for everything still to do.

@@ -34,6 +34,7 @@ import {
   type Simulation,
   type Step,
 } from "./schema";
+import { generateValues, newSeed } from "./random";
 
 export type Mode = "open" | "guided" | "scenario";
 export type Tone = "info" | "success" | "error";
@@ -68,6 +69,9 @@ export interface SessionState {
   touched: string[];
   /** Instruction of the step the trainee was on each time they made an error or took a hint. */
   troubleSteps: string[];
+  /** Seed for this run's random data, and the values it produced. */
+  seed: number;
+  generated: Record<string, string>;
 }
 
 export type InteractionEvent =
@@ -156,11 +160,18 @@ const describe = (el: SimElement) => `"${el.label || el.id}"`;
 
 // ---------------------------------------------------------------- session
 
-export function createSession(sim: Simulation, scenarioId: string | null, now = Date.now()): SessionState {
+/**
+ * Start a run. Variables get their initial values, then this run's random values (unless
+ * the scenario turns randomising off), then the scenario's starting-state overrides, which
+ * may themselves use {{templates}} of the random values.
+ */
+export function createSession(sim: Simulation, scenarioId: string | null, now = Date.now(), seed = newSeed()): SessionState {
   const vars: Record<string, string> = {};
   for (const v of sim.variables) vars[v.name] = v.initial ?? "";
   const sc = getScenario(sim, scenarioId);
-  for (const iv of sc?.initialVars ?? []) vars[iv.name] = iv.value;
+  const generated = !sc || sc.randomize ? generateValues(sim.randomData, seed, new Date(now)) : {};
+  Object.assign(vars, generated);
+  for (const iv of sc?.initialVars ?? []) vars[iv.name] = interpolate(iv.value, vars);
   const start =
     (sc?.startScreenId && getScreen(sim, sc.startScreenId)?.id) ||
     getScreen(sim, sim.startScreenId)?.id ||
@@ -184,6 +195,8 @@ export function createSession(sim: Simulation, scenarioId: string | null, now = 
     visited: [start],
     touched: [],
     troubleSteps: [],
+    seed,
+    generated,
   };
 }
 
@@ -199,7 +212,7 @@ export function takeHint(sim: Simulation, state: SessionState): { state: Session
   const target = findElement(sim, step.elementId);
   const where =
     target && target.screen.id !== state.screenId ? ` (on the "${target.screen.name}" screen)` : "";
-  const hint = (step.hint || step.instruction) + where;
+  const hint = interpolate(step.hint || step.instruction, state.vars) + where;
   return { state: { ...state, hintsUsed: state.hintsUsed + 1, troubleSteps: [...state.troubleSteps, step.instruction] }, hint };
 }
 
@@ -308,15 +321,16 @@ export function interact(
   const matches = matchedPaths.length > 0;
   const isTarget = matches || !!wrongValueStep;
   const hintStep = wrongValueStep ?? step;
+  const say = (text: string) => interpolate(text, state.vars);
 
   if (judging && step && !matches) {
     if (fieldCommit && !isTarget) {
       // Filling in a different field is never penalised; it may satisfy a later step.
-      if (mode === "guided") feedback.push({ tone: "info", text: `Next: ${step.instruction}` });
+      if (mode === "guided") feedback.push({ tone: "info", text: `Next: ${say(step.instruction)}` });
     } else if (mode === "guided") {
       const text = isTarget
-        ? `That value isn't quite right. ${hintStep!.hint ?? hintStep!.instruction}`
-        : `Not yet. ${step.instruction}`;
+        ? `That value isn't quite right. ${say(hintStep!.hint ?? hintStep!.instruction)}`
+        : `Not yet. ${say(step.instruction)}`;
       const mistake = isTarget ? `Wrong value in ${describe(el)}` : `Clicked ${describe(el)} instead of the next step`;
       const blockedState = {
         ...prev,
@@ -336,7 +350,7 @@ export function interact(
       state.troubleSteps = [...state.troubleSteps, (isTarget ? hintStep! : step).instruction];
       state.mistakes = [
         ...state.mistakes,
-        isTarget ? `Wrong value in ${describe(el)} (step: ${hintStep!.instruction})` : `Used ${describe(el)} when the step was: ${step.instruction}`,
+        isTarget ? `Wrong value in ${describe(el)} (step: ${say(hintStep!.instruction)})` : `Used ${describe(el)} when the step was: ${say(step.instruction)}`,
       ];
     }
   }
@@ -424,6 +438,10 @@ export function lintSimulation(sim: Simulation): string[] {
     if ((a.type === "set" || a.type === "toggle") && a.var && !varNames.has(a.var)) {
       issues.push(`"${e.label}" on ${s.name} sets undeclared variable "${a.var}".`);
     }
+  }
+  for (const g of sim.randomData) {
+    if (!varNames.has(g.var)) issues.push(`Random values are set for "${g.var}", which isn't a declared variable.`);
+    if (g.kind === "pick" && !(g.options ?? []).some((o) => o.trim())) issues.push(`Random values for "${g.var}" have no options to pick from.`);
   }
   for (const sc of sim.scenarios) {
     const paths = scenarioPaths(sc);

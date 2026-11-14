@@ -384,6 +384,7 @@ export default function Editor({ id }: { id: string }) {
         <VariablesPanel
           sim={sim}
           onChange={(v) => update((d) => { d.variables = v; }, "vars")}
+          onRandomChange={(r) => update((d) => { d.randomData = r; }, "random")}
           onRename={(oldName, next) => {
             const out = change((d) => renameVariable(d, oldName, next));
             return out instanceof Error ? out.message : null;
@@ -500,7 +501,7 @@ export default function Editor({ id }: { id: string }) {
             onClick={() => {
               const scId = newId("scenario");
               update((d) => {
-                d.scenarios.push({ id: scId, title: "New scenario", goal: "", initialVars: [], steps: [], alternatePaths: [], successCriteria: [], gradingSchemeId: null });
+                d.scenarios.push({ id: scId, title: "New scenario", goal: "", initialVars: [], steps: [], alternatePaths: [], successCriteria: [], gradingSchemeId: null, randomize: true });
               });
               setSel({ kind: "scenario", id: scId });
             }}

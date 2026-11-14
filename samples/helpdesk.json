@@ -1,7 +1,7 @@
 {
   "id": "sample-helpdesk",
   "title": "Helpdesk Ticketing (sample)",
-  "description": "A small ticketing system: sign in, work a ticket to resolution (two valid ways), and log new tickets. Built by hand as a reference for how simulations are structured.",
+  "description": "A small ticketing system: sign in, work a ticket to resolution (two valid ways), and log new tickets. Ticket numbers and people's names change every run. Built by hand as a reference for how simulations are structured.",
   "startScreenId": "login",
   "variables": [
     {
@@ -41,6 +41,21 @@
     {
       "name": "lastCreated",
       "initial": ""
+    },
+    {
+      "name": "ticketId",
+      "initial": "TCK-1042",
+      "description": "The printer ticket's number (random each run)"
+    },
+    {
+      "name": "reporter",
+      "initial": "J. Rivera",
+      "description": "Who reported the printer problem (random each run)"
+    },
+    {
+      "name": "caller",
+      "initial": "Grace Kim",
+      "description": "The sales manager calling about the VPN (random each run)"
     }
   ],
   "screens": [
@@ -218,7 +233,7 @@
         },
         {
           "id": "dash-t1042",
-          "label": "TCK-1042 · Printer offline on floor 3 · {{t1042_status}}",
+          "label": "{{ticketId}} · Printer offline on floor 3 · {{t1042_status}}",
           "kind": "hotspot",
           "rect": {
             "x": 4,
@@ -283,7 +298,7 @@
     },
     {
       "id": "ticket",
-      "name": "Ticket TCK-1042",
+      "name": "Ticket",
       "aspect": 1.6,
       "elements": [
         {
@@ -310,7 +325,7 @@
         },
         {
           "id": "tk-title",
-          "label": "TCK-1042: Printer offline on floor 3",
+          "label": "{{ticketId}}: Printer offline on floor 3",
           "kind": "text",
           "rect": {
             "x": 4,
@@ -322,7 +337,7 @@
         },
         {
           "id": "tk-desc",
-          "label": "Reported by J. Rivera: \"The floor 3 printer shows offline for everyone since this morning.\"",
+          "label": "Reported by {{reporter}}: \"The floor 3 printer shows offline for everyone since this morning.\"",
           "kind": "text",
           "rect": {
             "x": 4,
@@ -621,8 +636,8 @@
     {
       "id": "resolve-printer",
       "title": "Resolve the printer ticket",
-      "goal": "Sign in, then close out ticket TCK-1042 as Resolved with resolution notes.",
-      "briefing": "Facilities confirmed they power-cycled the floor 3 printer and it is back online. Update the ticket.",
+      "goal": "Sign in, then close out ticket {{ticketId}} as Resolved with resolution notes.",
+      "briefing": "Facilities confirmed they power-cycled the floor 3 printer that {{reporter}} reported. Update the ticket.",
       "steps": [
         {
           "id": "s1",
@@ -645,7 +660,7 @@
         },
         {
           "id": "s4",
-          "instruction": "Open ticket TCK-1042 from your queue.",
+          "instruction": "Open ticket {{ticketId}} from your queue.",
           "elementId": "dash-t1042",
           "expect": "any"
         },
@@ -704,7 +719,7 @@
             },
             {
               "id": "q4",
-              "instruction": "Open ticket TCK-1042 from your queue.",
+              "instruction": "Open ticket {{ticketId}} from your queue.",
               "elementId": "dash-t1042",
               "expect": "any"
             },
@@ -729,7 +744,7 @@
       "id": "log-vpn",
       "title": "Log a high-priority outage",
       "goal": "Log a new ticket for a VPN outage affecting the sales team, with the right priority.",
-      "briefing": "The sales manager calls: nobody on the sales team can connect to the VPN. You are already signed in.",
+      "briefing": "{{caller}}, the sales manager, calls: nobody on the sales team can connect to the VPN. You are already signed in.",
       "startScreenId": "dashboard",
       "initialVars": [
         {
@@ -762,9 +777,11 @@
         },
         {
           "id": "v4",
-          "instruction": "Describe the impact.",
+          "instruction": "Describe the impact, and record who reported it.",
           "elementId": "nt-desc",
-          "expect": "any"
+          "expect": "contains",
+          "hint": "Mention the caller by name ({{caller}}) so the network team can follow up.",
+          "value": "{{caller}}"
         },
         {
           "id": "v5",
@@ -779,6 +796,29 @@
           "op": "contains",
           "value": "High"
         }
+      ]
+    }
+  ],
+  "randomData": [
+    {
+      "var": "ticketId",
+      "kind": "pattern",
+      "pattern": "TCK-####"
+    },
+    {
+      "var": "reporter",
+      "kind": "name"
+    },
+    {
+      "var": "caller",
+      "kind": "pick",
+      "options": [
+        "Ana Silva",
+        "Ben Okafor",
+        "Grace Kim",
+        "Liam Murphy",
+        "Priya Patel",
+        "Wei Chen"
       ]
     }
   ]

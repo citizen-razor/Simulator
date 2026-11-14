@@ -15,6 +15,7 @@
  *       └─ steps[]     the expected interactions, in order
  */
 import { z } from "zod";
+import { RandomVarSchema } from "./random";
 
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const id = z.string().regex(ID_PATTERN, "ids may only contain letters, numbers, _ and -");
@@ -139,6 +140,8 @@ export const ScenarioSchema = z.object({
   successCriteria: z.array(ConditionSchema).default([]),
   /** Use a different grading scheme for this scenario (null = the simulation's scheme). */
   gradingSchemeId: z.string().nullable().default(null),
+  /** Use fresh random values (Simulation.randomData) on each run. Off = always the initial values. */
+  randomize: z.boolean().default(true),
 });
 
 /** Per-simulation targets for a grading scheme's screen/state checks (see shared/library.ts). */
@@ -159,6 +162,8 @@ export const SimulationSchema = z.object({
   scenarios: z.array(ScenarioSchema).default([]),
   /** Tag ids from the topic/tag library. */
   tagIds: z.array(z.string()).default([]),
+  /** Random value generators for variables, applied at the start of every run (see shared/random.ts). */
+  randomData: z.array(RandomVarSchema).default([]),
   /** Grading scheme from the grading library (null = Standard), plus per-simulation check targets. */
   grading: z
     .object({ schemeId: z.string().nullable().default(null), bindings: z.array(BindingSchema).default([]) })
@@ -233,6 +238,9 @@ export const AttemptSchema = z.object({
       overtimeSec: z.number().default(0),
     })
     .optional(),
+  /** Random values this run used, and the seed that produced them. */
+  data: z.record(z.string(), z.string()).optional(),
+  seed: z.number().optional(),
   /** null while manual rubric items are unmarked (or for older attempts). */
   passed: z.boolean().nullable().default(null),
   finishedAt: z.string(),

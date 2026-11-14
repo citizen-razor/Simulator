@@ -20,6 +20,12 @@ Nothing right now.
   up in Results and Progress (today the checklist is live only).
 - ⬜ **Scheme-level defaults for screen/state checks**: let a scheme carry default
   conditions, for schemes written for one specific simulation.
+- ⬜ **Assignment reminders**: email or in-app notices before a due date (needs accounts
+  or an email service).
+- ⬜ **Option to count earlier attempts toward an assignment** (today only attempts after
+  it was assigned count).
+- ⬜ **Random values inside screenshots**: today random values appear in text elements and
+  wireframes, not in the pixels of an uploaded screenshot.
 - ⬜ **Re-grade past attempts** when a scheme changes (today each attempt keeps the rules
   it was graded with, which is usually what you want for fairness).
 - ⬜ **Hosting for other people**: user accounts and roles (admin / author / trainee),
@@ -54,6 +60,11 @@ Nothing right now.
 - ✅ Clean up unused images (Libraries → Storage; admin only; keeps anything under a day old)
 - ✅ Tags and grading schemes carried through export/import, matched by name; created on
   import by admins, otherwise dropped with a warning
+- ✅ Randomised scenario data: seeded generators (list, number, pattern, name, date;
+  linked lists); `{{variables}}` in instructions, hints, goals and expected answers;
+  per-scenario opt-out; values saved with attempts
+- ✅ Assignments: complete / pass / master with due dates and notes; "My training" for
+  trainees; status from results; shown in the Player, summary and Progress
 
 ## Housekeeping (needs you, on GitHub)
 

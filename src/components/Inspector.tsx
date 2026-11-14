@@ -19,6 +19,7 @@ import {
 } from "../../shared/schema";
 import { newId } from "../../shared/engine";
 import type { GradingScheme } from "../../shared/library";
+import { GeneratorKinds, generateValues, newSeed, type RandomVar } from "../../shared/random";
 
 const OP_LABEL: Record<(typeof ConditionOps)[number], string> = {
   eq: "equals",
@@ -407,6 +408,12 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
           {sim.screens.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </label>
+      {sim.randomData.length > 0 && (
+        <label className="check-line">
+          <input type="checkbox" checked={scenario.randomize} onChange={(e) => set({ randomize: e.target.checked })} />
+          Use fresh random values each run
+        </label>
+      )}
       <details open={scenario.initialVars.length > 0}>
         <summary>Starting state ({scenario.initialVars.length})</summary>
         <p className="muted small">Override variable values so the scenario can begin mid-workflow.</p>
@@ -512,10 +519,11 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
   );
 }
 
-export function VariablesPanel({ sim, onChange, onRename }: {
+export function VariablesPanel({ sim, onChange, onRename, onRandomChange }: {
   sim: Simulation;
   onChange: (v: Simulation["variables"]) => void;
   onRename: (oldName: string, next: string) => string | null;
+  onRandomChange: (r: RandomVar[]) => void;
 }) {
   const vars = sim.variables;
   const set = (i: number, patch: Partial<Simulation["variables"][number]>) => onChange(vars.map((v, j) => (j === i ? { ...v, ...patch } : v)));
@@ -546,6 +554,102 @@ export function VariablesPanel({ sim, onChange, onRename }: {
           Used by fields but not declared (start empty): {undeclared.map((n) => <code key={n}>{n} </code>)}
           <button className="link-btn add" onClick={() => onChange([...vars, ...undeclared.map((name) => ({ name, initial: "" }))])}>Declare all</button>
         </p>
+      )}
+      <RandomDataEditor sim={sim} onChange={onRandomChange} />
+    </div>
+  );
+}
+
+const KIND_LABEL: Record<RandomVar["kind"], string> = {
+  pick: "Pick from a list",
+  number: "Number in a range",
+  pattern: "Pattern",
+  name: "Person's name",
+  date: "Date near today",
+};
+
+/** Random value generators: fresh values for chosen variables at the start of every run. */
+function RandomDataEditor({ sim, onChange }: { sim: Simulation; onChange: (r: RandomVar[]) => void }) {
+  const gens = sim.randomData;
+  const [samples, setSamples] = useState<Record<string, string>[] | null>(null);
+  const set = (i: number, patch: Partial<RandomVar>) => {
+    setSamples(null);
+    onChange(gens.map((g, j) => (j === i ? { ...g, ...patch } : g)));
+  };
+  const names = variableNames(sim);
+  const free = names.filter((n) => !gens.some((g) => g.var === n));
+  const num = (v: string) => (v === "" ? undefined : Number(v));
+  return (
+    <div className="random-data">
+      <h3>Random values</h3>
+      <p className="muted small">
+        Give variables fresh, realistic values every run so trainees learn the process rather than memorising answers. Use them
+        anywhere with {"{{name}}"}: labels, instructions, hints, and expected answers. Scenarios can turn this off.
+      </p>
+      {gens.map((g, i) => (
+        <div key={i} className="criterion">
+          <div className="row tight-top">
+            <select value={g.var} onChange={(e) => set(i, { var: e.target.value })} aria-label="Variable">
+              {[g.var, ...free].filter((v, k, a) => a.indexOf(v) === k).map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <select value={g.kind} onChange={(e) => set(i, { kind: e.target.value as RandomVar["kind"] })} aria-label="Kind">
+              {GeneratorKinds.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+            </select>
+            <span className="spacer" />
+            <button className="link-btn" aria-label="Remove generator" onClick={() => { setSamples(null); onChange(gens.filter((_, j) => j !== i)); }}>✕</button>
+          </div>
+          <div className="gen-params">
+            {g.kind === "pick" && (
+              <>
+                <label className="field">
+                  <span>Options (one per line)</span>
+                  <textarea rows={3} value={(g.options ?? []).join("\n")} onChange={(e) => set(i, { options: e.target.value.split("\n") })} />
+                </label>
+                <label className="field">
+                  <span>Linked group (optional)</span>
+                  <input value={g.group ?? ""} placeholder="e.g. customer" onChange={(e) => set(i, { group: e.target.value || undefined })} />
+                  <small className="muted">Lists in the same group with the same number of lines pick the same line, e.g. a name and its email.</small>
+                </label>
+              </>
+            )}
+            {(g.kind === "number" || g.kind === "date") && (
+              <div className="row tight-top">
+                <label className="inline-num">{g.kind === "date" ? "from day" : "min"}<input type="number" value={g.min ?? ""} onChange={(e) => set(i, { min: num(e.target.value) })} /></label>
+                <label className="inline-num">{g.kind === "date" ? "to day" : "max"}<input type="number" value={g.max ?? ""} onChange={(e) => set(i, { max: num(e.target.value) })} /></label>
+                {g.kind === "number" && (
+                  <label className="inline-num">decimals<input type="number" min={0} max={4} value={g.decimals ?? 0} onChange={(e) => set(i, { decimals: num(e.target.value) })} /></label>
+                )}
+                {g.kind === "date" && <span className="muted small">relative to today; negative = in the past</span>}
+              </div>
+            )}
+            {g.kind === "pattern" && (
+              <label className="field">
+                <span>Pattern</span>
+                <input className="mono" value={g.pattern ?? ""} placeholder="TCK-####" onChange={(e) => set(i, { pattern: e.target.value })} />
+                <small className="muted"># digit · A capital letter · a lower-case letter · ? letter or digit · \ before a symbol keeps it as-is</small>
+              </label>
+            )}
+          </div>
+        </div>
+      ))}
+      <div className="row">
+        <button
+          className="btn sm"
+          disabled={free.length === 0}
+          title={free.length ? "" : "Every variable already has random values"}
+          onClick={() => onChange([...gens, { var: free[0], kind: "name" }])}
+        >
+          + Random value
+        </button>
+        {gens.length > 0 && (
+          <button className="btn sm ghost" onClick={() => setSamples([1, 2, 3].map(() => generateValues(gens, newSeed())))}>🎲 Try it</button>
+        )}
+      </div>
+      {samples && (
+        <table className="var-table samples">
+          <thead><tr>{gens.map((g) => <th key={g.var}>{g.var}</th>)}</tr></thead>
+          <tbody>{samples.map((row, k) => <tr key={k}>{gens.map((g) => <td key={g.var}>{row[g.var] ?? "–"}</td>)}</tr>)}</tbody>
+        </table>
       )}
     </div>
   );

@@ -6,6 +6,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { MASTERY_SCORE, summarizeTrainee, summarizeTrainees, topicProgress, type ScenarioStatus } from "../../shared/progress";
 import type { Taxonomy } from "../../shared/library";
+import { assignmentStatus, byUrgency, localToday, sameName, type Assignment } from "../../shared/assignments";
+import { AssignmentBadge, dueText, REQUIREMENT_SHORT } from "../components/AssignmentBits";
 import type { Attempt } from "../../shared/schema";
 import { api } from "../api";
 import { ScoreTrend } from "../components/ScoreTrend";
@@ -35,7 +37,9 @@ export default function Progress({ name }: { name?: string }) {
   const [error, setError] = useState("");
   const [simTags, setSimTags] = useState<Record<string, string[]>>({});
   const [taxonomy, setTaxonomy] = useState<Taxonomy>({ topics: [] });
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
   useEffect(() => {
+    api.assignments().then(setAssignments).catch(() => undefined);
     api.attempts().then(setAttempts).catch((e) => setError(e.message));
     api.list().then((sims) => setSimTags(Object.fromEntries(sims.map((s) => [s.id, s.tagIds])))).catch(() => undefined);
     api.taxonomy().then(setTaxonomy).catch(() => undefined);
@@ -43,11 +47,28 @@ export default function Progress({ name }: { name?: string }) {
 
   if (error) return <div className="page"><div className="alert error">{error}</div></div>;
   if (!attempts) return <div className="page muted">Loading…</div>;
-  return name ? <TraineeDetail name={name} attempts={attempts} simTags={simTags} taxonomy={taxonomy} /> : <Overview attempts={attempts} />;
+  return name ? (
+    <TraineeDetail name={name} attempts={attempts} simTags={simTags} taxonomy={taxonomy} assignments={assignments.filter((a) => sameName(a.trainee, name))} />
+  ) : (
+    <Overview attempts={attempts} assignments={assignments} />
+  );
 }
 
-function Overview({ attempts }: { attempts: Attempt[] }) {
+function Overview({ attempts, assignments }: { attempts: Attempt[]; assignments: Assignment[] }) {
   const trainees = useMemo(() => summarizeTrainees(attempts), [attempts]);
+  const today = localToday();
+  const assignmentSummary = (name: string) => {
+    const mine = assignments.filter((a) => sameName(a.trainee, name)).map((a) => assignmentStatus(a, attempts, today));
+    if (!mine.length) return <span className="muted">–</span>;
+    const done = mine.filter((s) => s.state === "done").length;
+    const overdue = mine.filter((s) => s.state === "overdue").length;
+    return (
+      <>
+        {done} of {mine.length} done
+        {overdue > 0 && <span className="status bad small-status">{overdue} overdue</span>}
+      </>
+    );
+  };
   const unnamed = attempts.filter((a) => !a.trainee).length;
   return (
     <div className="page">
@@ -67,12 +88,13 @@ function Overview({ attempts }: { attempts: Attempt[] }) {
       ) : (
         <table className="results-table">
           <thead>
-            <tr><th>Trainee</th><th>Mastered</th><th>Avg solo score</th><th>Attempts</th><th>Practice time</th><th>Last active</th></tr>
+            <tr><th>Trainee</th><th>Assignments</th><th>Mastered</th><th>Avg solo score</th><th>Attempts</th><th>Practice time</th><th>Last active</th></tr>
           </thead>
           <tbody>
             {trainees.map((t) => (
               <tr key={t.name} className="clickable" onClick={() => (window.location.hash = `#/progress/${encodeURIComponent(t.name)}`)}>
                 <td><a href={`#/progress/${encodeURIComponent(t.name)}`}><b>{t.name}</b></a></td>
+                <td>{assignmentSummary(t.name)}</td>
                 <td>{t.mastered} of {t.scenarios.length} attempted</td>
                 <td>{t.avgSolo ?? <span className="muted">–</span>}</td>
                 <td>{t.attempts}</td>
@@ -88,7 +110,18 @@ function Overview({ attempts }: { attempts: Attempt[] }) {
   );
 }
 
-function TraineeDetail({ name, attempts, simTags, taxonomy }: { name: string; attempts: Attempt[]; simTags: Record<string, string[]>; taxonomy: Taxonomy }) {
+function TraineeDetail({ name, attempts, simTags, taxonomy, assignments }: {
+  name: string;
+  attempts: Attempt[];
+  simTags: Record<string, string[]>;
+  taxonomy: Taxonomy;
+  assignments: Assignment[];
+}) {
+  const today = localToday();
+  const assigned = useMemo(
+    () => assignments.map((assignment) => ({ assignment, status: assignmentStatus(assignment, attempts, today) })).sort(byUrgency),
+    [assignments, attempts, today],
+  );
   const t = useMemo(() => summarizeTrainee(name, attempts), [name, attempts]);
   const byTopic = useMemo(() => topicProgress(t, simTags, taxonomy.topics), [t, simTags, taxonomy]);
   const recent = useMemo(
@@ -116,6 +149,25 @@ function TraineeDetail({ name, attempts, simTags, taxonomy }: { name: string; at
         <div className="tile"><span className="muted small">Attempts</span><b>{t.attempts}</b><span className="muted small">{guided} with guided help</span></div>
         <div className="tile"><span className="muted small">Practice time</span><b>{fmtDuration(t.practiceSec)}</b></div>
       </div>
+
+      {assigned.length > 0 && (
+        <>
+          <h2 className="section">Assignments</h2>
+          <table className="results-table">
+            <thead><tr><th>Scenario</th><th>Needs to</th><th>Due</th><th>Status</th></tr></thead>
+            <tbody>
+              {assigned.map(({ assignment: a, status }) => (
+                <tr key={a.id}>
+                  <td><b>{a.scenarioTitle}</b><div className="muted small">{a.simulationTitle}</div></td>
+                  <td>{REQUIREMENT_SHORT[a.requirement]}</td>
+                  <td className="small">{dueText(a.dueDate, status)}</td>
+                  <td><AssignmentBadge status={status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
 
       {byTopic.length > 0 && (
         <>

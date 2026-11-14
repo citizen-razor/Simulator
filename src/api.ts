@@ -1,4 +1,5 @@
 /** Thin wrappers around the local API. Every write sends the X-Simulator header the server requires. */
+import type { Assignment } from "../shared/assignments";
 import type { GradingLibrary, GradingScheme, Taxonomy } from "../shared/library";
 import type { Attempt, Simulation } from "../shared/schema";
 import { adminPin } from "./lib/admin";
@@ -59,6 +60,12 @@ export const api = {
   imageUsage: () =>
     request<{ total: { count: number; bytes: number }; removable: { count: number; bytes: number }; recentUnused: number }>("GET", "/api/admin/images"),
   cleanupImages: () => request<{ deleted: number; bytes: number }>("POST", "/api/admin/images/cleanup"),
+  assignments: (trainee?: string) =>
+    request<Assignment[]>("GET", `/api/assignments${trainee ? `?trainee=${encodeURIComponent(trainee)}` : ""}`),
+  assignment: (id: string) => request<Assignment>("GET", `/api/assignments/${encodeURIComponent(id)}`),
+  createAssignments: (body: { trainees: string[]; simulationId: string; scenarioId: string; requirement: string; dueDate: string | null; note: string }) =>
+    request<Assignment[]>("POST", "/api/assignments", body),
+  deleteAssignment: (id: string) => request<void>("DELETE", `/api/assignments/${encodeURIComponent(id)}`),
   markAttempt: (id: string, marks: Record<string, boolean | null>) => request<Attempt>("POST", `/api/attempts/${encodeURIComponent(id)}/marks`, { marks }),
   addAttempt: (a: Omit<Attempt, "id">) => request<Attempt>("POST", "/api/attempts", { ...a, id: "new" }),
 };

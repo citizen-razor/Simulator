@@ -51,6 +51,10 @@ import {
   updateAttempt,
   imageUsage,
   deleteUnusedImages,
+  listAssignments,
+  getAssignment,
+  createAssignments,
+  deleteAssignment,
 } from "./storage";
 import { buildBundle, exportFileName, importBundle, ImportError } from "./transfer";
 import { adminPinRequired, checkPin, isAdminRequest, requireAdmin } from "./admin";
@@ -223,6 +227,43 @@ app.post(
   route(async (req, res) => {
     requireAdmin(req);
     res.json(await deleteUnusedImages());
+  }),
+);
+
+// ---- assignments (anyone can read, so trainees can see theirs; admins create and remove)
+
+app.get(
+  "/api/assignments",
+  route(async (req, res) => {
+    const trainee = typeof req.query.trainee === "string" ? req.query.trainee : undefined;
+    res.json(await listAssignments(trainee));
+  }),
+);
+app.get("/api/assignments/:id", route(async (req, res) => res.json(await getAssignment(param(req, "id")))));
+app.post(
+  "/api/assignments",
+  route(async (req, res) => {
+    requireAdmin(req);
+    const b = req.body ?? {};
+    if (!Array.isArray(b.trainees)) throw new HttpError(400, "trainees must be a list of names");
+    res.status(201).json(
+      await createAssignments({
+        trainees: b.trainees.map(String).slice(0, 200),
+        simulationId: String(b.simulationId ?? ""),
+        scenarioId: String(b.scenarioId ?? ""),
+        requirement: b.requirement,
+        dueDate: b.dueDate ?? null,
+        note: typeof b.note === "string" ? b.note : "",
+      }),
+    );
+  }),
+);
+app.delete(
+  "/api/assignments/:id",
+  route(async (req, res) => {
+    requireAdmin(req);
+    await deleteAssignment(param(req, "id"));
+    res.status(204).end();
   }),
 );
 

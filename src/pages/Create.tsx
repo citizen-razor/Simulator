@@ -116,6 +116,7 @@ export default function Create() {
         screens,
         scenarios: [],
         tagIds: [],
+        randomData: [],
         grading: { schemeId: null, bindings: [] },
       });
       navigate(`/edit/${sim.id}`);

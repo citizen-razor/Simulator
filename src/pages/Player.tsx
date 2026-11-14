@@ -6,6 +6,7 @@ import {
   getScenario,
   getScreen,
   interact,
+  interpolate,
   leadingPath,
   newId,
   scoreSession,
@@ -22,6 +23,7 @@ import { PlayScreen } from "../components/ScreenView";
 import { navigate } from "../router";
 import { evaluateObjectives, gradeSession, resolveScheme, timeLeft, type GradeResult } from "../../shared/grading";
 import { STANDARD_SCHEME, type GradingScheme } from "../../shared/library";
+import { meetsRequirement, REQUIREMENT_TEXT, type Assignment } from "../../shared/assignments";
 import { loadTrainee, saveTrainee } from "../lib/trainee";
 
 const MODES: { id: Mode; label: string; blurb: string }[] = [
@@ -61,6 +63,9 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   const [hint, setHint] = useState("");
   const [summary, setSummary] = useState<null | { completed: boolean; grade: GradeResult; durationSec: number }>(null);
   const [schemes, setSchemes] = useState<GradingScheme[]>([STANDARD_SCHEME]);
+  const [assignment, setAssignment] = useState<Assignment | null>(null);
+  /** After a run launched from an assignment: did it satisfy it? (null = awaiting marking) */
+  const [assignmentMet, setAssignmentMet] = useState<boolean | null | undefined>(undefined);
   const [recording, setRecording] = useState<Step[]>([]);
   const [trainee, setTrainee] = useState(loadTrainee);
   const [nameDraft, setNameDraft] = useState("");
@@ -70,6 +75,8 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
 
   useEffect(() => {
     api.grading().then((g) => setSchemes(g.schemes)).catch(() => undefined);
+    const asgId = query.get("assignment");
+    if (asgId) api.assignment(asgId).then(setAssignment).catch(() => undefined);
     api
       .get(id)
       .then((s) => {
@@ -136,7 +143,12 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
         pathName: sc.alternatePaths.length ? result.pathName : "",
         mistakes: s.mistakes,
         troubleSteps: s.troubleSteps,
+        data: Object.keys(s.generated).length ? s.generated : undefined,
+        seed: Object.keys(s.generated).length ? s.seed : undefined,
         finishedAt: new Date().toISOString(),
+      })
+      .then((saved) => {
+        if (assignment && assignment.scenarioId === sc.id) setAssignmentMet(meetsRequirement(saved, assignment.requirement));
       })
       .catch((e) => pushToasts([{ tone: "error", text: `Couldn't save result: ${e.message}` }]));
   };
@@ -170,6 +182,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   };
 
   const restart = (m: Mode = mode) => {
+    setAssignmentMet(undefined);
     setSession(createSession(sim, session.scenarioId));
     setMode(m);
     setSummary(null);
@@ -319,9 +332,16 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
               {judged && scenario && (
                 <section className="panel">
                   <h3>{scenario.title}</h3>
-                  <p><b>Goal:</b> {scenario.goal}</p>
-                  {scenario.briefing && <p className="muted">{scenario.briefing}</p>}
+                  <p><b>Goal:</b> {interpolate(scenario.goal, session.vars)}</p>
+                  {scenario.briefing && <p className="muted">{interpolate(scenario.briefing, session.vars)}</p>}
                   {session.assisted && mode === "scenario" && <p className="badge">Assisted run</p>}
+                  {assignment && assignment.scenarioId === scenario.id && (
+                    <p className="assignment-note small">
+                      📋 <b>Assigned to you:</b> {REQUIREMENT_TEXT[assignment.requirement].toLowerCase()}
+                      {assignment.dueDate && ` by ${new Date(`${assignment.dueDate}T12:00:00`).toLocaleDateString()}`}.
+                      {assignment.requirement !== "complete" && mode === "guided" && " Guided runs are practice; switch to Scenario mode to count."}
+                    </p>
+                  )}
                   <GradingInfo scheme={scheme} />
                 </section>
               )}
@@ -336,8 +356,8 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                   <ol className="steps">
                     {leadingPath(sim, session)!.steps.map((st, i) => (
                       <li key={st.id} className={i < session.stepIndex ? "done" : i === session.stepIndex ? "current" : ""}>
-                        {st.instruction}
-                        {i === session.stepIndex && st.hint && <div className="hint">💡 {st.hint}</div>}
+                        {interpolate(st.instruction, session.vars)}
+                        {i === session.stepIndex && st.hint && <div className="hint">💡 {interpolate(st.hint, session.vars)}</div>}
                       </li>
                     ))}
                   </ol>
@@ -438,6 +458,16 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                 {summary.grade.overtimeSec > 0 && ` · ${formatTime(summary.grade.overtimeSec)} over time`}
               </span>
             </p>
+            {assignmentMet !== undefined && (
+              <p className={`alert ${assignmentMet ? "info" : "warn"} small`}>
+                {assignmentMet === true
+                  ? "📋 Assignment complete. Nice work!"
+                  : assignmentMet === null
+                    ? "📋 This may complete your assignment once a trainer marks it."
+                    : `📋 Not enough for your assignment yet: ${REQUIREMENT_TEXT[assignment!.requirement].toLowerCase()}.`}{" "}
+                <a href="#/my">My training</a>
+              </p>
+            )}
             {summary.grade.rubric.length > 0 && (
               <ul className="checklist rubric-result">
                 {summary.grade.rubric.map((c) => (

@@ -111,6 +111,12 @@ export default function Results({ simulationId }: { simulationId?: string }) {
                   <tr className="detail">
                     <td colSpan={11}>
                       {a.grading && <RubricDetail attempt={a} onUpdated={(u) => setAttempts((xs) => xs!.map((x) => (x.id === u.id ? u : x)))} />}
+                      {a.data && (
+                        <p className="small run-data">
+                          <b>This run's data:</b>{" "}
+                          {Object.entries(a.data).map(([k, v]) => <span key={k} className="chip">{k} = {v}</span>)}
+                        </p>
+                      )}
                       <b className="small">Mistakes</b>
                       {a.mistakes.length ? <ul>{a.mistakes.map((m, i) => <li key={i}>{m}</li>)}</ul> : <p className="muted">No mistakes recorded.</p>}
                     </td>

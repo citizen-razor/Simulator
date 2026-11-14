@@ -6,8 +6,9 @@
  *   element id   ← scenario steps on every path (elementId, alsoElementIds);
  *                  a field's variable when it has no bindVar
  *   screen id    ← startScreenId, "navigate" actions, scenario startScreenId
- *   variable     ← declarations, bindVar, every condition, set/toggle actions,
- *                  scenario initialVars, and {{name}} templates in labels and values
+ *   variable     ← declarations, random-value generators, bindVar, every condition, set/toggle actions,
+ *                  scenario initialVars, and {{name}} templates in labels, values,
+ *                  placeholders, step instructions and hints, and scenario goals and briefings
  *
  * All functions mutate the simulation passed in (the editor passes a fresh clone)
  * and throw an Error with a readable message when the change isn't allowed.
@@ -92,6 +93,7 @@ export function renameVariable(sim: Simulation, oldName: string, newName: string
   const retemplate = (s: string | undefined) => (s === undefined ? s : s.replace(tpl, `{{${newName}}}`));
 
   for (const v of sim.variables) if (v.name === oldName) v.name = newName;
+  for (const g of sim.randomData) if (g.var === oldName) g.var = newName;
   for (const e of allElements(sim)) {
     if (isField(e) && (e.bindVar || e.id) === oldName) e.bindVar = newName;
     e.label = retemplate(e.label)!;
@@ -106,8 +108,20 @@ export function renameVariable(sim: Simulation, oldName: string, newName: string
     if (c.var === oldName) c.var = newName;
     c.value = retemplate(c.value);
   });
-  for (const sc of sim.scenarios) for (const iv of sc.initialVars) if (iv.name === oldName) iv.name = newName;
-  for (const st of allSteps(sim)) st.value = retemplate(st.value);
+  for (const sc of sim.scenarios) {
+    sc.goal = retemplate(sc.goal)!;
+    sc.briefing = retemplate(sc.briefing);
+    for (const iv of sc.initialVars) {
+      if (iv.name === oldName) iv.name = newName;
+      iv.value = retemplate(iv.value)!;
+    }
+  }
+  for (const st of allSteps(sim)) {
+    st.value = retemplate(st.value);
+    st.instruction = retemplate(st.instruction)!;
+    st.hint = retemplate(st.hint);
+  }
+  for (const e of allElements(sim)) e.placeholder = retemplate(e.placeholder);
 }
 
 // ------------------------------------------------------------------ duplicate

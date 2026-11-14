@@ -19,6 +19,7 @@ import {
   type Taxonomy,
 } from "../shared/library";
 import { findUnusedImages, type StoredFile, type UsageReport } from "./cleanup";
+import { AssignmentSchema, sameName, type Assignment } from "../shared/assignments";
 import { ASSET_ID_PATTERN, AttemptSchema, ID_PATTERN, SimulationSchema, type Attempt, type Simulation } from "../shared/schema";
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
@@ -270,4 +271,67 @@ export async function deleteUnusedImages(): Promise<{ deleted: number; bytes: nu
   const report = await imageUsage();
   for (const id of report.removable.ids) await fs.rm(assetPath(id), { force: true });
   return { deleted: report.removable.count, bytes: report.removable.bytes };
+}
+
+// ------------------------------------------------------------------ assignments
+
+const ASSIGNMENTS_FILE = path.join(DATA_DIR, "assignments.json");
+let assignmentsLock: Promise<unknown> = Promise.resolve();
+
+export async function listAssignments(trainee?: string): Promise<Assignment[]> {
+  const all = AssignmentSchema.array().parse(await readJson(ASSIGNMENTS_FILE, []));
+  return trainee ? all.filter((a) => sameName(a.trainee, trainee)) : all;
+}
+
+export async function getAssignment(id: string): Promise<Assignment> {
+  const a = (await listAssignments()).find((x) => x.id === id);
+  if (!a) throw new HttpError(404, "Assignment not found");
+  return a;
+}
+
+function updateAssignments(fn: (all: Assignment[]) => Assignment[]): Promise<Assignment[]> {
+  const job = assignmentsLock.then(async () => {
+    const next = fn(await listAssignments());
+    await writeAtomic(ASSIGNMENTS_FILE, JSON.stringify(next, null, 2));
+    return next;
+  });
+  assignmentsLock = job.catch(() => undefined);
+  return job;
+}
+
+/** Assign one scenario to several trainees. One assignment per trainee; a trainee listed twice gets one. */
+export async function createAssignments(input: {
+  trainees: string[];
+  simulationId: string;
+  scenarioId: string;
+  requirement?: string;
+  dueDate?: string | null;
+  note?: string;
+}): Promise<Assignment[]> {
+  const sim = await getSimulation(input.simulationId);
+  const sc = sim.scenarios.find((s) => s.id === input.scenarioId);
+  if (!sc) throw new HttpError(400, "That scenario doesn't exist in the simulation.");
+  const names = [...new Map(input.trainees.map((t) => t.trim()).filter(Boolean).map((t) => [t.toLowerCase(), t])).values()];
+  if (!names.length) throw new HttpError(400, "Add at least one trainee.");
+  const now = new Date().toISOString();
+  const created = names.map((trainee) =>
+    AssignmentSchema.parse({
+      id: newId("asg"),
+      trainee,
+      simulationId: sim.id,
+      scenarioId: sc.id,
+      simulationTitle: sim.title,
+      scenarioTitle: sc.title,
+      requirement: input.requirement,
+      dueDate: input.dueDate || null,
+      note: input.note ?? "",
+      createdAt: now,
+    }),
+  );
+  await updateAssignments((all) => [...created, ...all]);
+  return created;
+}
+
+export async function deleteAssignment(id: string) {
+  await updateAssignments((all) => all.filter((a) => a.id !== id));
 }
