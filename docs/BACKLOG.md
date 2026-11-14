@@ -38,6 +38,8 @@ Nothing right now.
   it was graded with, which is usually what you want for fairness).
 - ⬜ **Hosting for other people**: a real database, HTTPS, company single sign-on
   (SAML/OIDC), limits on AI spending; turn on SCIM from the customer's identity provider.
+- ⬜ **Performance over time and by topic**: trends by week, filters by date range and
+  team, and a CSV download of the figures.
 - ⬜ **Verify AI features with a real API key**: generation quality, box fine-tuning
   accuracy, and whether the AI proposes sensible alternative paths.
 
@@ -89,6 +91,10 @@ Nothing right now.
   (users + enterprise manager, bearer token per organisation); leaderboard (org-wide by name,
   my team, by topic, by scenario); My team; assignments by leaders within their tree.
   Replaced the admin PIN and the typed-name prompt.
+- ✅ Course performance for Builders: per-simulation and per-scenario completion, pass and
+  mastery rates, score spread, rubric criteria at the point level (worth, met rate, average
+  earned, awaiting marking), points lost to errors / hints / overtime, trouble steps, where
+  unfinished runs stopped, paths taken; Guided runs can be left out. Aggregate only, no names
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

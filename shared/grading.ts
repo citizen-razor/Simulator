@@ -141,6 +141,11 @@ export function gradeSession(sim: Simulation, state: SessionState, scheme: Gradi
     rubricWeight: scheme.rubricWeight,
     rubric,
     overtimeSec,
+    pointsLost: {
+      errors: state.errors * scheme.points.errorPenalty,
+      hints: state.hintsUsed * scheme.points.hintPenalty,
+      overtime: overtimePenalty,
+    },
   };
   return { ...grading, ...finalScore(grading, state.completed) };
 }

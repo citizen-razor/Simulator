@@ -87,6 +87,7 @@ import { withUserIds, mainBoard, scenarioBoard } from "../shared/leaderboard";
 import { reportingTree } from "../shared/people";
 import { sameName } from "../shared/assignments";
 import { finalScore } from "../shared/grading";
+import { analyzeSimulation, stats } from "../shared/analytics";
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = "127.0.0.1";
@@ -466,6 +467,32 @@ app.post(
     // The attempt always belongs to whoever is signed in.
     const r = requireUser(req);
     res.status(201).json(await addAttempt({ ...req.body, userId: r.user.id, trainee: r.user.name }));
+  }),
+);
+
+/**
+ * Course performance for Builders and Admin-Builders: aggregate figures only (no names),
+ * across every learner's attempts. `guided=0` leaves out Guided runs.
+ */
+app.get(
+  "/api/analytics",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const [sims, attempts] = await Promise.all([listSimulations(), listAttempts()]);
+    res.json(
+      sims
+        .map((s) => ({ id: s.id, title: s.title, tagIds: s.tagIds, scenarios: s.scenarios, stats: stats(attempts.filter((a) => a.simulationId === s.id)) }))
+        .sort((a, b) => b.stats.attempts - a.stats.attempts),
+    );
+  }),
+);
+
+app.get(
+  "/api/analytics/:simId",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const sim = await getSimulation(param(req, "simId"));
+    res.json(analyzeSimulation(sim, await listAttempts(sim.id), req.query.guided !== "0"));
   }),
 );
 

@@ -1,6 +1,7 @@
 /** Thin wrappers around the local API. Every write sends the X-Simulator header the server requires. */
 import type { Assignment } from "../shared/assignments";
 import type { Role, User } from "../shared/people";
+import type { SimulationAnalysis, Stats } from "../shared/analytics";
 
 export interface DirectoryPerson {
   id: string;
@@ -24,6 +25,14 @@ export interface LeaderRow {
 import type { GradingLibrary, GradingScheme, Taxonomy } from "../shared/library";
 import type { Persona, PersonaLibrary, PersonaTemplate } from "../shared/personas";
 import type { Attempt, Simulation } from "../shared/schema";
+
+export interface PerformanceRow {
+  id: string;
+  title: string;
+  tagIds: string[];
+  scenarios: number;
+  stats: Stats;
+}
 
 export interface SimSummary {
   id: string;
@@ -91,6 +100,9 @@ export const api = {
   issueScim: () => request<{ token: string; path: string }>("POST", "/api/people/scim"),
   revokeScim: () => request<void>("DELETE", "/api/people/scim"),
   leaderboard: (scope: string) => request<{ scope: string; rows: LeaderRow[] }>("GET", `/api/leaderboard?scope=${encodeURIComponent(scope)}`),
+  performance: () => request<PerformanceRow[]>("GET", "/api/analytics"),
+  simPerformance: (id: string, includeGuided = true) =>
+    request<SimulationAnalysis>("GET", `/api/analytics/${encodeURIComponent(id)}${includeGuided ? "" : "?guided=0"}`),
   taxonomy: () => request<Taxonomy>("GET", "/api/library/taxonomy"),
   saveTaxonomy: (t: Taxonomy) => request<Taxonomy>("PUT", "/api/library/taxonomy", t),
   grading: () => request<GradingLibrary>("GET", "/api/library/grading"),

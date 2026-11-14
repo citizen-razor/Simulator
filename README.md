@@ -175,7 +175,7 @@ Everyone signs in with their email and password. Roles stack, so one person can 
 | Role | Can |
 |---|---|
 | **Admin-Builder** | Everything: the libraries (tags, grading schemes and rubrics, personas and templates), assignments for anyone, trainer marking, storage, and managing people |
-| **Builder** | Build and edit simulations and scenarios (create, AI generation, import/export). Can view, but not edit, the libraries |
+| **Builder** | Build and edit simulations and scenarios (create, AI generation, import/export), and see course **Performance** (totals and averages, no names). Can view, but not edit, the libraries |
 | **Leader** | Everything a learner can, plus: see every learner in their reporting tree (direct reports and further down), assign them training, and see a team leaderboard |
 | **Learner** | Everyone. Take simulations, receive assignments, see their own results and progress, and see the leaderboard |
 
@@ -238,6 +238,26 @@ soon** (within 3 days), or **to do**. Credit follows the work: any qualifying at
 including one a trainee made on their own before the scenario was assigned. Those are
 marked "already done before it was assigned". Assignments also appear on each person's
 progress page.
+
+### Course performance (Builders)
+
+**Performance** (Builders and Admin-Builders) shows how each course is doing across all
+learners, so you can see what to improve. It shows totals and averages only and never names anyone.
+- **All courses:** attempts, learners, completion, pass and mastery rates, and average score
+  for every simulation, busiest first.
+- **One course** (also from **Performance** on a Library card or in the editor):
+  - the headline figures, then for each scenario:
+  - a **score spread** chart;
+  - **how the score is made up**: the points/rubric split, the average points part, and
+    the average points lost to errors, hints and going over time;
+  - **rubric criteria at the point level**: what each criterion is worth (points of the final
+    100), how often it was met, the average points earned, and how many trainer-marked
+    ones are still awaiting marking;
+  - **trouble steps** (where learners made errors or asked for hints), **where unfinished
+    runs stopped**, and which **paths** were taken.
+  - Untick **Include Guided runs** to see Scenario mode only.
+
+Points lost per penalty is recorded from now on; older attempts show everything else.
 
 ### Trainee progress
 
@@ -322,6 +342,7 @@ server/people.ts      people management and CSV import routes
 server/scim.ts        SCIM 2.0 provisioning (users + managers)
 shared/people.ts      roles, hierarchy, permissions, CSV parsing
 shared/leaderboard.ts leaderboard ranking
+shared/analytics.ts   course performance for builders (aggregate only)
 samples/              the built-in Helpdesk sample
 tests/                engine and AI-conversion tests
 ```

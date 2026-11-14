@@ -147,6 +147,7 @@ export default function Library() {
                 <a className="btn primary sm" href={`#/play/${s.id}`}>Play</a>
                 {auth.isBuilder && <a className="btn sm" href={`#/edit/${s.id}`}>Edit</a>}
                 {(auth.isAdmin || auth.isLeader) && <a className="btn sm ghost" href={`#/results/${s.id}`}>Results</a>}
+                {auth.isBuilder && <a className="btn sm ghost" href={`#/performance/${s.id}`}>Performance</a>}
                 <span className="spacer" />
                 {auth.isBuilder && (
                   <>

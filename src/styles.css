@@ -467,3 +467,28 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .people-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-top: 20px; align-items: start; }
 .people-tools textarea, .people-tools input:not([type=checkbox]), .people-tools select { width: 100%; }
 .one-time code.secret { display: block; font-size: 16px; padding: 8px; margin: 6px 0; background: var(--surface); border-radius: 6px; user-select: all; word-break: break-all; }
+
+/* Performance (course analytics) */
+.perf-scenario { margin-top: 20px; }
+.perf-scenario h2 { margin: 0 0 4px; }
+.perf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
+.chart { margin: 0; }
+.chart svg { width: 100%; max-width: 420px; height: auto; display: block; }
+.chart-grid { stroke: var(--border); stroke-width: 1; }
+.chart-axis { fill: var(--muted); font-size: 10px; }
+.chart-bar { fill: var(--accent); }
+.chart-hit:hover .chart-bar { filter: brightness(1.15); }
+.chart-hit:hover rect { fill: var(--surface-2); fill-opacity: 0.6; }
+.makeup { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; margin: 0; }
+.makeup dt { color: var(--muted); }
+.makeup dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.makeup dd.full { grid-column: 1 / -1; text-align: left; font-weight: 400; }
+.meter { display: inline-block; vertical-align: middle; width: 120px; height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.meter > span { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+.meter-label { margin-left: 8px; font-variant-numeric: tabular-nums; }
+.rubric-perf td { font-variant-numeric: tabular-nums; }
+.rubric-perf .badge.subtle { margin-left: 6px; }
+.count-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.count-list li { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; }
+.count-list .meter { width: 80px; }
+.count-label { overflow-wrap: anywhere; }

@@ -261,6 +261,8 @@ export const AttemptSchema = z.object({
         }),
       ),
       overtimeSec: z.number().default(0),
+      /** Points lost to each penalty (absent on attempts saved before this was recorded). */
+      pointsLost: z.object({ errors: z.number(), hints: z.number(), overtime: z.number() }).optional(),
     })
     .optional(),
   /** Random values this run used, and the seed that produced them. */

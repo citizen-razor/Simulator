@@ -464,6 +464,7 @@ export default function Editor({ id }: { id: string }) {
           <button className="btn sm ghost warn" onClick={() => setShowIssues((v) => !v)}>⚠ {issues.length} issue{issues.length > 1 ? "s" : ""}</button>
         )}
         <button className="btn sm ghost" onClick={doUndo} disabled={!undo.current.stack.length} title="Undo (Ctrl+Z)">↶ Undo</button>
+        <a className="btn sm ghost" href={`#/performance/${sim.id}`} onClick={(e) => { if (dirty && !confirm("Leave without saving your changes?")) e.preventDefault(); }}>Performance</a>
         <a className="btn sm ghost" href={exportUrl(sim.id)} download title={dirty ? "Exports the last saved version. Save first to include recent changes." : "Download as a file (includes images)"}>⤓ Export</a>
         <button className="btn sm" onClick={() => goPlay(`/play/${sim.id}`)}>▶ Play</button>
         <button className="btn sm primary" onClick={save} disabled={!dirty || saving}>{saving ? "Saving…" : "Save"}</button>

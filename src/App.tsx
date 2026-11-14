@@ -8,6 +8,7 @@ import Libraries from "./pages/Libraries";
 import Library from "./pages/Library";
 import MyTraining from "./pages/MyTraining";
 import People from "./pages/People";
+import Performance from "./pages/Performance";
 import Player from "./pages/Player";
 import Progress from "./pages/Progress";
 import Results from "./pages/Results";
@@ -37,6 +38,7 @@ export default function App() {
     progress: true, // the page itself limits you to who you may see
     new: auth.isBuilder,
     edit: auth.isBuilder,
+    performance: auth.isBuilder,
     assignments: canSeeOthers,
     results: canSeeOthers,
     libraries: true, // view-only unless Admin-Builder
@@ -61,6 +63,7 @@ export default function App() {
           {auth.isBuilder && nav("#/new", "Create", "new")}
           {canSeeOthers && nav("#/assignments", "Assignments", "assignments")}
           {canSeeOthers && nav("#/results", "Results", "results")}
+          {auth.isBuilder && nav("#/performance", "Performance", "performance")}
           {(auth.isAdmin || auth.isBuilder) && nav("#/libraries", "Libraries", "libraries")}
           {auth.isAdmin && nav("#/people", "People", "people")}
         </nav>
@@ -91,6 +94,8 @@ export default function App() {
           <Progress key={id ?? ""} userId={id} />
         ) : page === "results" ? (
           <Results simulationId={id} />
+        ) : page === "performance" ? (
+          <Performance key={id ?? ""} simulationId={id} />
         ) : page === "people" ? (
           <People />
         ) : page === "account" ? (
