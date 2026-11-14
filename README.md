@@ -53,8 +53,11 @@ Everything you create is stored in the `data/` folder. Back it up by copying it.
    best scenarios.
 3. **Generate with AI.** This usually takes 1–3 minutes. Claude drafts the screens, controls,
    state, rules and 1–3 scenarios, plus notes on what to double-check.
-4. **Review in the editor.** AI is good at structure but only approximate at placing boxes
-   on screenshots, so drag them into place.
+4. **Box fine-tuning (automatic).** After drafting, a second AI pass checks each screenshot
+   screen. It draws a percentage grid and the current numbered boxes onto a copy of the
+   image, and Claude corrects each box against the grid. You can turn this off with the
+   checkbox under the upload area.
+5. **Review in the editor.** Check the AI's notes, and drag any boxes that are still off.
 
 You can also click **Start blank** or **Build manually from N images** to author by hand.
 
@@ -73,6 +76,8 @@ You can also click **Start blank** or **Build manually from N images** to author
   to perform the task yourself; each click or entry becomes a step.
 - **✦ Ask AI to change it**: e.g. "add a scenario where the customer has no order number".
   You review the result before saving, and **Undo** (Ctrl+Z) reverts it.
+- **✦ Align boxes to screenshot** (above the canvas) re-runs the box fine-tuning on the
+  current screen, e.g. after you've added controls. It's undoable like any other edit.
 - The **⚠ issues** button lists broken references, such as a step pointing at a deleted control.
 - Save with the button or Ctrl+S. If you try to leave with unsaved changes, you'll be asked first.
 
@@ -126,11 +131,13 @@ API automatically retries on a fallback model.
 shared/schema.ts      data model (start here)
 shared/engine.ts      simulation engine: modes, rules, steps, scoring, lint checks
 server/index.ts       API routes and security checks
-server/generate.ts    Claude integration (generate + refine)
+server/generate.ts    Claude integration (generate, refine, align boxes)
 server/storage.ts     file storage under data/
 src/pages/            Library, Create, Editor, Player, Results
 src/components/       ScreenView (renders screens for play and edit), Inspector panels
 src/lib/media.ts      in-browser image resizing and video key-frame extraction
+src/lib/align.ts      draws the grid + numbered boxes for box fine-tuning
+shared/layout.ts      applies fine-tuned boxes (clamping, matching numbers to elements)
 samples/              the built-in Helpdesk sample
 tests/                engine and AI-conversion tests
 ```
@@ -161,14 +168,16 @@ rate limits on AI calls, HTTPS, and a real database.
 
 ## Costs
 
-Generation uses `claude-opus-5-5` by default (set `SIM_MODEL` in `.env` to change it). Cost
+Box fine-tuning adds one smaller AI call per screenshot screen (two images in, a short list
+of boxes out). Generation uses `claude-opus-5-5` by default (set `SIM_MODEL` in `.env` to change it). Cost
 depends on the amount of input (each screenshot is roughly 1,500 tokens) and mostly on the
 size of the simulation written back. Expect well under a few dollars per generation; check
 actual usage in the Claude Console. Playing and editing simulations makes no AI calls.
 
 ## Known limitations and next steps
 
-- Element boxes placed by AI on screenshots are approximate and usually need a quick drag.
+- Box fine-tuning greatly reduces manual dragging, but very small or crowded controls may
+  still need a nudge.
 - Video narration (audio) isn't transcribed; only frames are used.
 - Scenario steps are strictly ordered. Field entries can be done in any order, but clicks can't.
 - Single user, local files. Moving to a database and accounts is the main step before hosting.

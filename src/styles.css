@@ -284,3 +284,4 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .name-gate .panel { width: 100%; max-width: 360px; margin: 0; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25); }
 .name-gate input { width: 100%; }
 .field.inline { flex-direction: row; align-items: center; gap: 8px; margin: 0; }
+.check-line { display: flex; gap: 8px; align-items: center; margin: 12px 0 4px; cursor: pointer; }

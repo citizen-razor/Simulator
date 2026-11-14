@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Simulation } from "../../shared/schema";
 import { api, streamAi, type AiProgress, type AiResult } from "../api";
+import { alignScreens, applyRects } from "../lib/align";
 import { prepareFile, type Prepared, type PreparedImage } from "../lib/media";
 import { navigate } from "../router";
 
@@ -23,14 +24,16 @@ export default function Create() {
   const [status, setStatus] = useState<{ model: string; aiConfigured: boolean } | null>(null);
   const [progress, setProgress] = useState<AiProgress | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [result, setResult] = useState<AiResult | null>(null);
+  const [result, setResult] = useState<(AiResult & { alignProblems: string[] }) | null>(null);
+  const [autoAlign, setAutoAlign] = useState(true);
+  const [alignProgress, setAlignProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState("");
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api.status().then(setStatus).catch(() => setStatus({ model: "", aiConfigured: false }));
   }, []);
-  const generating = progress !== null;
+  const generating = progress !== null || alignProgress !== null;
   useEffect(() => {
     if (!generating) return;
     const start = Date.now();
@@ -67,11 +70,31 @@ export default function Create() {
         pdfs: parts.flatMap((p) => (p.kind === "pdf" ? [{ name: p.name, data: p.data }] : [])),
         docx: parts.flatMap((p) => (p.kind === "docx" ? [{ name: p.name, data: p.data }] : [])),
       };
-      setResult(await streamAi("/api/generate", body, setProgress));
+      const r = await streamAi("/api/generate", body, setProgress);
+      const alignProblems: string[] = [];
+      const toAlign = r.simulation.screens.filter((sc) => sc.imageAssetId && sc.elements.length).length;
+      // Second pass: tighten the boxes on screenshot screens. The draft is already saved,
+      // so if anything here fails the author still has a usable simulation.
+      if (autoAlign && toAlign) {
+        setAlignProgress({ done: 0, total: toAlign }); // set before clearing progress so the panel doesn't flicker
+        setProgress(null);
+        const { rects, problems } = await alignScreens(r.simulation.screens, (done, total) => setAlignProgress({ done, total }));
+        alignProblems.push(...problems);
+        if (Object.keys(rects).length) {
+          applyRects(r.simulation.screens, rects);
+          try {
+            r.simulation = await api.save(r.simulation);
+          } catch (e) {
+            alignProblems.push(`Couldn't save the aligned boxes: ${(e as Error).message}`);
+          }
+        }
+      }
+      setResult({ ...r, alignProblems });
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setProgress(null);
+      setAlignProgress(null);
     }
   };
 
@@ -111,6 +134,12 @@ export default function Create() {
           <div className="panel">
             <h3>Notes from the AI</h3>
             <p className="prewrap">{result.notes}</p>
+          </div>
+        )}
+        {result.alignProblems.length > 0 && (
+          <div className="alert warn">
+            <b>Box alignment notes:</b>
+            <ul>{result.alignProblems.map((i) => <li key={i}>{i}</li>)}</ul>
           </div>
         )}
         {result.issues.length > 0 && (
@@ -197,17 +226,32 @@ export default function Create() {
       {tooManyImages && <div className="alert warn">At most 40 images per generation. Remove some files or shorten videos.</div>}
       {error && <div className="alert error">{error}</div>}
 
-      {progress ? (
+      {generating ? (
         <div className="panel generating">
           <div className="spinner" />
           <div>
-            <b>{progress.phase === "uploading" ? "Uploading…" : progress.phase === "thinking" ? "Analyzing your material…" : "Writing the simulation…"}</b>
+            <b>
+              {alignProgress
+                ? `Fine-tuning box positions: screen ${Math.min(alignProgress.done + 1, alignProgress.total)} of ${alignProgress.total}…`
+                : progress!.phase === "uploading"
+                  ? "Uploading…"
+                  : progress!.phase === "thinking"
+                    ? "Analyzing your material…"
+                    : "Writing the simulation…"}
+            </b>
             <div className="muted small">
-              {elapsed}s elapsed{progress.chars ? ` · ${Math.round(progress.chars / 100) / 10}k characters` : ""}. This usually takes 1–3 minutes.
+              {elapsed}s elapsed{progress?.chars ? ` · ${Math.round(progress.chars / 100) / 10}k characters` : ""}. This usually takes 1–3 minutes.
             </div>
           </div>
         </div>
       ) : (
+        <>
+        {images.length > 0 && (
+          <label className="check-line">
+            <input type="checkbox" checked={autoAlign} onChange={(e) => setAutoAlign(e.target.checked)} />
+            Fine-tune box positions on screenshots afterwards (an extra AI pass per screen; recommended)
+          </label>
+        )}
         <div className="row">
           <button
             className="btn primary"
@@ -220,6 +264,7 @@ export default function Create() {
             {images.length ? `Build manually from ${images.length} image${images.length > 1 ? "s" : ""}` : "Start blank"}
           </button>
         </div>
+        </>
       )}
       {status && !status.aiConfigured && (
         <p className="muted small">

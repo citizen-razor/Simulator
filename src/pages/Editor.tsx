@@ -4,6 +4,7 @@ import { ElementKinds, FIELD_KINDS, type ElementKind, type Rect, type SimElement
 import { api, streamAi, type AiProgress } from "../api";
 import { ElementInspector, ScenarioInspector, ScreenInspector, VariablesPanel } from "../components/Inspector";
 import { EditScreen } from "../components/ScreenView";
+import { alignScreen } from "../lib/align";
 import { prepareImage } from "../lib/media";
 import { navigate, setLeaveGuard } from "../router";
 
@@ -43,6 +44,8 @@ export default function Editor({ id }: { id: string }) {
   const [aiProgress, setAiProgress] = useState<AiProgress | null>(null);
   const [aiNotes, setAiNotes] = useState("");
   const [aiAvailable, setAiAvailable] = useState(false);
+  const [aligning, setAligning] = useState(false);
+  const [alignMsg, setAlignMsg] = useState<{ screenId: string; text: string } | null>(null);
   const undo = useRef<{ stack: Simulation[]; lastKey: string; lastAt: number }>({ stack: [], lastKey: "", lastAt: 0 });
 
   useEffect(() => {
@@ -207,6 +210,32 @@ export default function Editor({ id }: { id: string }) {
     }
   };
 
+  const alignBoxes = async () => {
+    setAligning(true);
+    setAlignMsg(null);
+    setError("");
+    const target = screen;
+    try {
+      const { rects, notFound } = await alignScreen(target);
+      const moved = Object.keys(rects).length;
+      if (moved) {
+        update((d) => {
+          const sc = d.screens.find((x) => x.id === target.id);
+          for (const el of sc?.elements ?? []) if (rects[el.id]) el.rect = rects[el.id];
+        });
+      }
+      setAlignMsg({
+        screenId: target.id,
+        text: (moved ? `Adjusted ${moved} box${moved > 1 ? "es" : ""}. Save to keep, or Undo.` : "Boxes already line up.") +
+          (notFound.length ? ` Not found in screenshot: ${notFound.join(", ")}.` : ""),
+      });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAligning(false);
+    }
+  };
+
   const goPlay = async (path: string) => {
     if (dirty && !(await save())) return; // stay put if saving failed
     navigate(path, { force: true });
@@ -364,6 +393,14 @@ export default function Editor({ id }: { id: string }) {
             {ElementKinds.map((k) => (
               <button key={k} className={`chip-btn ${drawKind === k ? "on" : ""}`} onClick={() => setDrawKind(k)}>{k}</button>
             ))}
+            {aiAvailable && screen.imageAssetId && screen.elements.length > 0 && (
+              <>
+                <span className="spacer" />
+                <button className="btn sm" onClick={alignBoxes} disabled={aligning} title="Ask AI to snap every box on this screen to the control it describes">
+                  {aligning ? "Aligning…" : "✦ Align boxes to screenshot"}
+                </button>
+              </>
+            )}
           </div>
           <EditScreen
             screen={screen}
@@ -377,6 +414,7 @@ export default function Editor({ id }: { id: string }) {
             }
             onCreate={addElement}
           />
+          {alignMsg?.screenId === screen.id && <p className="small center">{alignMsg.text}</p>}
           <p className="muted small center">Drag on empty space to draw a <b>{drawKind}</b>. Drag an element to move it; use its corner to resize.</p>
         </section>
 

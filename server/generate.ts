@@ -414,3 +414,74 @@ export async function refineSimulation(
   updated.createdAt = sim.createdAt;
   return { simulation: updated, notes: draft.authorNotes, issues: lintSimulation(updated) };
 }
+
+// ------------------------------------------------------------ box alignment pass
+// Claude places boxes on screenshots only approximately on the first pass. This
+// second pass shows it the clean screenshot plus a copy with a percentage grid and
+// the current boxes drawn and numbered, and asks for corrected boxes. Seeing its
+// own boxes against a grid makes the correction far more accurate than guessing
+// coordinates blind. The browser draws the marked-up image (see src/lib/align.ts).
+
+const AlignResult = z.object({
+  elements: z.array(
+    z.object({ n: z.number().int(), found: z.boolean(), x: z.number(), y: z.number(), w: z.number(), h: z.number() }),
+  ),
+});
+
+const AlignImage = z.object({
+  mediaType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]),
+  data: z.string().max(15_000_000),
+});
+
+export const AlignInputSchema = z.object({
+  screenName: z.string().max(300),
+  elements: z
+    .array(z.object({ n: z.number().int().positive(), kind: z.enum(ElementKinds), label: z.string().max(500) }))
+    .min(1)
+    .max(150),
+  clean: AlignImage,
+  annotated: AlignImage,
+});
+export type AlignInput = z.infer<typeof AlignInputSchema>;
+
+const ALIGN_PROMPT = `You correct the positions of interactive regions on a software screenshot used in a training simulation.
+
+You get two images of the same screen:
+- Image 1: the clean screenshot.
+- Image 2: the same screenshot with a magenta percentage grid (lines every 10%, labelled along the top and left edges, thin lines every 5%) and the CURRENT boxes drawn as numbered coloured rectangles. The current boxes are rough guesses and may be offset, too large, too small, or on the wrong control.
+
+For every numbered element, find the control it describes in Image 1 and return a box that tightly covers it, as percentages of the image's width (x, w) and height (y, h), where x,y is the top-left corner. Use the grid in Image 2 to measure each edge precisely; estimate to the nearest 0.5%.
+- input / textarea / select: cover the entry area itself, not its label.
+- button / link: cover the button or link text.
+- hotspot: cover the whole clickable region it describes (e.g. an entire table row, card, tab or icon).
+- checkbox: cover the box and its label text.
+- text: cover the area where that text or value is displayed.
+If two elements describe different controls, their boxes should not overlap. If the control is not visible in the screenshot at all, set found to false and return the current box unchanged. Return one entry per number.`;
+
+export async function alignElements(input: AlignInput) {
+  const list = input.elements.map((e) => `${e.n}. [${e.kind}] ${e.label}`).join("\n");
+  const message = await getClient().beta.messages.parse({
+    model: MODEL,
+    max_tokens: 16000,
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    output_config: { effort: "high", format: betaZodOutputFormat(AlignResult) },
+    system: ALIGN_PROMPT,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Image 1 (clean):" },
+          { type: "image", source: { type: "base64", media_type: input.clean.mediaType, data: input.clean.data } },
+          { type: "text", text: "Image 2 (grid and current boxes):" },
+          { type: "image", source: { type: "base64", media_type: input.annotated.mediaType, data: input.annotated.data } },
+          { type: "text", text: `Screen: ${input.screenName}\nElements:\n${list}` },
+        ],
+      },
+    ],
+  });
+  if (message.stop_reason === "refusal") throw new Error("The model declined to align this screen.");
+  if (message.stop_reason === "max_tokens") throw new Error("Too many elements to align in one pass.");
+  if (!message.parsed_output) throw new Error("The model's reply could not be read.");
+  return message.parsed_output.elements;
+}

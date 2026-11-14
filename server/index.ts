@@ -20,6 +20,8 @@ import { ZodError } from "zod";
 import sample from "../samples/helpdesk.json";
 import { SimulationSchema } from "../shared/schema";
 import {
+  AlignInputSchema,
+  alignElements,
   describeApiError,
   generateSimulation,
   GenerateInputSchema,
@@ -210,6 +212,19 @@ app.post(
     }
     // Refinement returns the revised simulation without saving; the author reviews it in the editor.
     await streamAi(res, (progress) => refineSimulation(sim, instruction, images, (p) => progress({ type: "progress", ...p })));
+  }),
+);
+
+app.post(
+  "/api/align",
+  route(async (req, res) => {
+    const input = AlignInputSchema.parse(req.body);
+    try {
+      res.json({ elements: await alignElements(input) });
+    } catch (e) {
+      const { status, message } = describeApiError(e);
+      res.status(status).json({ error: message });
+    }
   }),
 );
 
