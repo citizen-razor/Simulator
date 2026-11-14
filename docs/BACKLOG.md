@@ -15,7 +15,6 @@ Nothing right now.
   code); check the Player at phone sizes.
 - ⬜ **Video narration**: transcribe recordings' audio so the AI hears the explanation
   (needs a speech-to-text service).
-- ⬜ **Automatic tests on GitHub**: run typecheck, tests and build on every push.
 - ⬜ **Clean up unused images**: delete stored screenshots no simulation uses.
 - ⬜ **Carry tags and grading scheme through export/import**: match them by name on import.
 - ⬜ **AI suggestions for tags and rubric criteria** when generating a simulation.
@@ -53,6 +52,7 @@ Nothing right now.
   open-world objectives; per-simulation scheme with scenario override and check targets;
   trainer marking on Results; pass/fail and mastery from the scheme
 - ✅ Admin mode via `ADMIN_PIN` (rate-limited; enforced by the server)
+- ✅ Automatic checks on GitHub: typecheck, tests and build on every push and pull request
 
 ## Housekeeping (needs you, on GitHub)
 
