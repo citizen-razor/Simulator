@@ -45,6 +45,7 @@ export const api = {
   uploadAsset: (mediaType: string, data: string) => request<{ assetId: string }>("POST", "/api/assets", { mediaType, data }),
   attempts: (simulationId?: string) =>
     request<Attempt[]>("GET", `/api/attempts${simulationId ? `?simulationId=${encodeURIComponent(simulationId)}` : ""}`),
+  importSimulation: (data: unknown) => request<{ simulation: Simulation; warnings: string[] }>("POST", "/api/import", data),
   addAttempt: (a: Omit<Attempt, "id">) => request<Attempt>("POST", "/api/attempts", { ...a, id: "new" }),
 };
 
@@ -81,3 +82,5 @@ export async function streamAi(url: string, body: unknown, onProgress: (p: AiPro
 }
 
 export const assetUrl = (id: string) => `/assets/${id}`;
+/** Downloads the simulation and its images as one .simulation.json file. */
+export const exportUrl = (id: string) => `/api/simulations/${encodeURIComponent(id)}/export`;

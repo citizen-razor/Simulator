@@ -1,9 +1,12 @@
-import { useEffect, useState } from "react";
-import { api, assetUrl, type SimSummary } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { api, assetUrl, exportUrl, type SimSummary } from "../api";
 
 export default function Library() {
   const [sims, setSims] = useState<SimSummary[] | null>(null);
   const [error, setError] = useState("");
+  const [imported, setImported] = useState<{ id: string; title: string; warnings: string[] } | null>(null);
+  const [importing, setImporting] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const load = () => api.list().then(setSims).catch((e) => setError(e.message));
   useEffect(() => {
@@ -14,6 +17,29 @@ export default function Library() {
     if (!confirm(`Delete "${s.title}"? This can't be undone.`)) return;
     await api.remove(s.id);
     load();
+  };
+
+  const importFile = async (file: File) => {
+    setError("");
+    setImported(null);
+    if (file.size > 250_000_000) return setError(`${file.name} is too large to import (250 MB max).`);
+    setImporting(true);
+    try {
+      let data: unknown;
+      try {
+        data = JSON.parse(await file.text());
+      } catch {
+        throw new Error(`${file.name} isn't a simulation export (it's not valid JSON).`);
+      }
+      const { simulation, warnings } = await api.importSimulation(data);
+      setImported({ id: simulation.id, title: simulation.title, warnings });
+      load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setImporting(false);
+      if (fileInput.current) fileInput.current.value = "";
+    }
   };
 
   const duplicate = async (s: SimSummary) => {
@@ -29,9 +55,28 @@ export default function Library() {
           <h1>Simulations</h1>
           <p className="muted">Each simulation can be played in Open world, Guided, or Scenario mode.</p>
         </div>
-        <a className="btn primary" href="#/new">+ New simulation</a>
+        <div className="row">
+          <label className={`btn ${importing ? "disabled" : ""}`} title="Import a .simulation.json file exported from this app">
+            {importing ? "Importing…" : "⤒ Import"}
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".json,application/json"
+              hidden
+              disabled={importing}
+              onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])}
+            />
+          </label>
+          <a className="btn primary" href="#/new">+ New simulation</a>
+        </div>
       </div>
-      {error && <div className="alert error">Couldn't reach the server: {error}</div>}
+      {error && <div className="alert error">{error}</div>}
+      {imported && (
+        <div className={`alert ${imported.warnings.length ? "warn" : "info"}`}>
+          Imported <b>{imported.title}</b>. <a href={`#/edit/${imported.id}`}>Open in editor</a>
+          {imported.warnings.length > 0 && <ul>{imported.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
+        </div>
+      )}
       {sims && sims.length === 0 && (
         <div className="empty">
           <p>No simulations yet.</p>
@@ -55,6 +100,7 @@ export default function Library() {
                 <a className="btn sm" href={`#/edit/${s.id}`}>Edit</a>
                 <a className="btn sm ghost" href={`#/results/${s.id}`}>Results</a>
                 <span className="spacer" />
+                <a className="btn sm ghost" href={exportUrl(s.id)} download title="Export as a file (includes images)">⤓</a>
                 <button className="btn sm ghost" onClick={() => duplicate(s)} title="Duplicate">⧉</button>
                 <button className="btn sm ghost danger" onClick={() => remove(s)} title="Delete">✕</button>
               </div>

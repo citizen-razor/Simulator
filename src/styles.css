@@ -293,3 +293,4 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .reorder span:hover { background: var(--surface); color: var(--text); }
 .reorder span.off { opacity: 0.25; pointer-events: none; }
 .nav-item .reorder + .count, .nav-item .count + .reorder { margin-left: 4px; }
+.btn.disabled { opacity: 0.5; pointer-events: none; }

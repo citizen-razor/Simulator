@@ -44,6 +44,7 @@ import {
   saveAsset,
   saveSimulation,
 } from "./storage";
+import { buildBundle, exportFileName, importBundle, ImportError } from "./transfer";
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = "127.0.0.1";
@@ -77,7 +78,10 @@ app.use("/api", (req, res, next) => {
   }
   next();
 });
-app.use(express.json({ limit: "60mb" }));
+// Imports can carry many screenshots, so that one route accepts larger bodies.
+const jsonDefault = express.json({ limit: "60mb" });
+const jsonImport = express.json({ limit: "250mb" });
+app.use((req, res, next) => (req.path === "/api/import" ? jsonImport : jsonDefault)(req, res, next));
 
 type Handler = (req: Request, res: Response) => Promise<unknown>;
 const route = (fn: Handler) => (req: Request, res: Response, next: NextFunction) => fn(req, res).catch(next);
@@ -118,6 +122,30 @@ app.delete(
   route(async (req, res) => {
     await deleteSimulation(param(req, "id"));
     res.status(204).end();
+  }),
+);
+
+app.get(
+  "/api/simulations/:id/export",
+  route(async (req, res) => {
+    const sim = await getSimulation(param(req, "id"));
+    const { bundle, missing } = await buildBundle(sim, readAsset);
+    if (missing.length) res.setHeader("X-Missing-Images", String(missing.length));
+    res.setHeader("Content-Disposition", `attachment; filename="${exportFileName(sim.title)}"`);
+    res.type("application/json").send(JSON.stringify(bundle));
+  }),
+);
+
+app.post(
+  "/api/import",
+  route(async (req, res) => {
+    try {
+      const { simulation, warnings } = await importBundle(req.body, saveAsset, newId());
+      res.status(201).json({ simulation: await saveSimulation(simulation), warnings });
+    } catch (e) {
+      if (e instanceof ImportError) throw new HttpError(400, e.message);
+      throw e;
+    }
   }),
 );
 
@@ -238,7 +266,7 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   } else if (err instanceof HttpError) {
     res.status(err.status).json({ error: err.message });
   } else if ((err as { type?: string }).type === "entity.too.large") {
-    res.status(413).json({ error: "Upload too large (60 MB max per request)." });
+    res.status(413).json({ error: "Upload too large (60 MB max per request; 250 MB for imports)." });
   } else {
     console.error(err);
     res.status(500).json({ error: "Internal error" });

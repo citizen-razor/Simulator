@@ -37,7 +37,18 @@ you can try every mode right away. Manual authoring works without an API key; on
 | `npm test` | Runs the automated tests |
 | `npm run typecheck` | Checks the TypeScript for errors |
 
-Everything you create is stored in the `data/` folder. Back it up by copying it.
+Everything you create is stored in the `data/` folder. Back it up by copying it, or export
+individual simulations (below).
+
+### Sharing and backing up simulations
+
+- **Export:** the ⤓ button on a simulation card (or **⤓ Export** in the editor) downloads
+  one `.simulation.json` file containing the simulation and all its screenshots.
+- **Import:** **⤒ Import** on the Library page. The import is added as a new simulation and
+  never overwrites an existing one. Plain simulation JSON (without images) also works.
+- Imported files are checked before anything is saved. The simulation is validated, and
+  each image's actual content must match its type, so a disguised file is rejected. Any
+  problems are listed after the import.
 
 ---
 
@@ -138,7 +149,8 @@ shared/schema.ts      data model (start here)
 shared/engine.ts      simulation engine: modes, rules, steps, scoring, lint checks
 server/index.ts       API routes and security checks
 server/generate.ts    Claude integration (generate, refine, align boxes)
-server/storage.ts     file storage under data/
+server/storage.ts     file storage under data/ (and image content checks)
+server/transfer.ts    export / import of a simulation with its images
 src/pages/            Library, Create, Editor, Player, Results
 src/components/       ScreenView (renders screens for play and edit), Inspector panels
 src/lib/media.ts      in-browser image resizing and video key-frame extraction
@@ -163,8 +175,9 @@ The app is designed to run on your own computer.
   "DNS rebinding"). It also requires a custom `X-Simulator` header on every change, which
   browsers won't let another site add. Other sites therefore can't modify data or spend
   your API credits.
-- **Validated input.** Every saved simulation, attempt and upload is checked against a
-  schema. File and asset ids must match strict patterns before they touch the disk, which
+- **Validated input.** Every saved simulation, attempt, upload and import is checked against a
+  schema, and uploaded images must really be PNG, JPEG, WebP or GIF (checked from the file's
+  contents, not just its name). File and asset ids must match strict patterns before they touch the disk, which
   prevents path traversal. Only image types are accepted as assets.
 - **No uploaded code runs.** Uploaded HTML or code is treated as text for the AI to read.
   It is never rendered or executed. In production a strict Content-Security-Policy is
@@ -189,4 +202,4 @@ actual usage in the Claude Console. Playing and editing simulations makes no AI 
 - Scenario steps are strictly ordered. Field entries can be done in any order, but clicks can't.
 - Single user, local files. Moving to a database and accounts is the main step before hosting.
 - Ideas: branching scenarios (multiple valid paths), timed challenges, trainer dashboards per
-  learner, exporting simulations as a standalone file for sharing.
+  learner.
