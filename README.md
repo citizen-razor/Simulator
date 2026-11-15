@@ -267,6 +267,9 @@ learners, so you can see what to improve. It shows totals and averages only and 
     ones are still awaiting marking;
   - **where unfinished runs stopped**, and which **paths** were taken.
   - Untick **Include Guided runs** to see Scenario mode only.
+- **Team and topic:** filter to a leader's team (everyone in their reporting tree); figures
+  based on fewer than 3 of the team's learners aren't shown, so no one can be singled out. The
+  course list can also be filtered by topic.
 - **Dates and export:** pick a date range (or Last 30 / 90 days) on either page; a course
   shows a week-by-week table; **Download CSV** saves the figures for a spreadsheet (still
   totals and averages only).

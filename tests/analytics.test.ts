@@ -100,4 +100,16 @@ describe("course performance", () => {
     // Formula-looking text is neutralised; commas and quotes are quoted.
     expect(overviewCsv([{ title: '=HYPERLINK("x"), y', scenarios: 1, stats: analyzeSimulation(sim, []).overall }])).toContain(`"'=HYPERLINK(""x""), y"`);
   });
+
+  it("filters to a leader's whole reporting tree, matching older typed names", async () => {
+    const { teamAttempts } = await import("../shared/analytics");
+    const people = [
+      { id: "lead", name: "Lee", managerId: null, active: true },
+      { id: "ana", name: "Ana", managerId: "lead", active: true },
+      { id: "ben", name: "Ben Ito", managerId: "ana", active: true }, // two levels down
+      { id: "out", name: "Out", managerId: null, active: true },
+    ];
+    const xs = [at({ userId: "ana" }), at({ userId: undefined, trainee: "ben ito" }), at({ userId: "out" }), at({ userId: "lead" })];
+    expect(teamAttempts(xs, people, "lead").map((a) => a.userId)).toEqual(["ana", "ben"]);
+  });
 });

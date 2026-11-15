@@ -88,7 +88,15 @@ import { withUserIds, mainBoard, scenarioBoard } from "../shared/leaderboard";
 import { reportingTree } from "../shared/people";
 import { sameName } from "../shared/assignments";
 import { finalScore } from "../shared/grading";
-import { analyzeSimulation, inDateRange, stats } from "../shared/analytics";
+import { analyzeSimulation, inDateRange, MIN_TEAM_LEARNERS, stats, teamAttempts } from "../shared/analytics";
+import type { Attempt } from "../shared/schema";
+
+const teamParam = (v: unknown) => (typeof v === "string" && /^[\w-]{1,100}$/.test(v) ? v : undefined);
+/** Attempts within the date range and, if a team (leader id) is given, by that leader's reporting tree. */
+function scoped(r: AuthedRequest, attempts: Attempt[], q: Request["query"], team: string | undefined): Attempt[] {
+  const dated = inDateRange(attempts, dateParam(q.from), dateParam(q.to));
+  return team ? teamAttempts(dated, r.people, team) : dated;
+}
 
 /** A YYYY-MM-DD query parameter, or undefined. */
 const dateParam = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
@@ -483,12 +491,18 @@ app.post(
 app.get(
   "/api/analytics",
   route(async (req, res) => {
-    requirePermission(req, "simulations.build");
+    const r = requirePermission(req, "simulations.build");
     const [sims, all] = await Promise.all([listSimulations(), listAttempts()]);
-    const attempts = inDateRange(all, dateParam(req.query.from), dateParam(req.query.to));
+    const team = teamParam(req.query.team);
+    const attempts = scoped(r, all, req.query, team);
     res.json(
       sims
-        .map((s) => ({ id: s.id, title: s.title, tagIds: s.tagIds, scenarios: s.scenarios, stats: stats(attempts.filter((a) => a.simulationId === s.id)) }))
+        .map((s) => {
+          const st = stats(attempts.filter((a) => a.simulationId === s.id));
+          // With a team chosen, too few learners would identify individuals: show nothing.
+          const hidden = !!team && st.learners > 0 && st.learners < MIN_TEAM_LEARNERS;
+          return { id: s.id, title: s.title, tagIds: s.tagIds, scenarios: s.scenarios, hidden, stats: hidden ? stats([]) : st };
+        })
         .sort((a, b) => b.stats.attempts - a.stats.attempts),
     );
   }),
@@ -497,10 +511,14 @@ app.get(
 app.get(
   "/api/analytics/:simId",
   route(async (req, res) => {
-    requirePermission(req, "simulations.build");
+    const r = requirePermission(req, "simulations.build");
     const sim = await getSimulation(param(req, "simId"));
-    const attempts = inDateRange(await listAttempts(sim.id), dateParam(req.query.from), dateParam(req.query.to));
-    res.json(analyzeSimulation(sim, attempts, req.query.guided !== "0"));
+    const team = teamParam(req.query.team);
+    const result = analyzeSimulation(sim, scoped(r, await listAttempts(sim.id), req.query, team), req.query.guided !== "0");
+    if (team && result.overall.learners > 0 && result.overall.learners < MIN_TEAM_LEARNERS) {
+      return void res.json({ ...analyzeSimulation(sim, []), hidden: true });
+    }
+    res.json(result);
   }),
 );
 

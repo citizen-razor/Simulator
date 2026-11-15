@@ -10,6 +10,8 @@
  */
 import { breakdown, stepTitles, stepsRecorded, type FlowLine } from "./breakdown";
 import { isSolo, masteryMark } from "./progress";
+import { reportingTree, type User } from "./people";
+import { withUserIds } from "./leaderboard";
 import type { Attempt, Simulation } from "./schema";
 
 export interface Stats {
@@ -98,10 +100,24 @@ export interface WeekStats {
 }
 
 export interface SimulationAnalysis {
+  /** Set when a team filter leaves too few learners to show without identifying someone. */
+  hidden?: boolean;
   overall: Stats;
   /** Week by week, oldest first, including empty weeks in between. */
   weekly: WeekStats[];
   scenarios: ScenarioAnalysis[];
+}
+
+/**
+ * Team filters show nothing for fewer learners than this: with a known team, figures for one or
+ * two people would effectively be their individual results, which Builders don't see.
+ */
+export const MIN_TEAM_LEARNERS = 3;
+
+/** Attempts by people in a leader's reporting tree (any depth). Older name-only attempts are matched by name first. */
+export function teamAttempts(attempts: Attempt[], people: Pick<User, "id" | "name" | "managerId" | "active">[], leaderId: string): Attempt[] {
+  const team = reportingTree(people, leaderId);
+  return withUserIds(attempts, people).filter((a) => !!a.userId && team.has(a.userId));
 }
 
 /** Attempts finished between two dates (YYYY-MM-DD, inclusive; either may be left out). */

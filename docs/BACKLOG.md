@@ -36,8 +36,6 @@ Nothing right now.
   it was graded with, which is usually what you want for fairness).
 - ⬜ **Hosting for other people**: a real database, HTTPS, company single sign-on
   (SAML/OIDC), limits on AI spending; turn on SCIM from the customer's identity provider.
-- ⬜ **Performance by team and topic**: filter course performance to a leader's team or a
-  topic (dates, weekly trend and CSV are done).
 - ⬜ **Verify AI features with a real API key**: generation quality, box fine-tuning
   accuracy, and whether the AI proposes sensible alternative paths.
 
@@ -115,6 +113,8 @@ Nothing right now.
   the course list and of a course's figures (scenarios, weeks, steps, penalties, criteria)
 - ✅ Link older name-only results: People lists typed names that match no one (or several
   people); the Admin-Builder picks the person and their results and assignments move over
+- ✅ Performance by team and topic: filter to a leader's whole reporting tree (hidden below 3
+  learners so no one's results can be singled out) and the course list by topic
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

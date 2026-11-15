@@ -31,6 +31,8 @@ export interface PerformanceRow {
   title: string;
   tagIds: string[];
   scenarios: number;
+  /** A team filter left too few learners on this course to show. */
+  hidden?: boolean;
   stats: Stats;
 }
 
@@ -106,9 +108,10 @@ export const api = {
   issueScim: () => request<{ token: string; path: string }>("POST", "/api/people/scim"),
   revokeScim: () => request<void>("DELETE", "/api/people/scim"),
   leaderboard: (scope: string) => request<{ scope: string; rows: LeaderRow[] }>("GET", `/api/leaderboard?scope=${encodeURIComponent(scope)}`),
-  performance: (range: { from?: string; to?: string } = {}) => request<PerformanceRow[]>("GET", `/api/analytics${query({ from: range.from, to: range.to })}`),
-  simPerformance: (id: string, includeGuided = true, range: { from?: string; to?: string } = {}) =>
-    request<SimulationAnalysis>("GET", `/api/analytics/${encodeURIComponent(id)}${query({ guided: includeGuided ? undefined : "0", from: range.from, to: range.to })}`),
+  performance: (range: { from?: string; to?: string; team?: string } = {}) =>
+    request<PerformanceRow[]>("GET", `/api/analytics${query({ from: range.from, to: range.to, team: range.team })}`),
+  simPerformance: (id: string, includeGuided = true, range: { from?: string; to?: string; team?: string } = {}) =>
+    request<SimulationAnalysis>("GET", `/api/analytics/${encodeURIComponent(id)}${query({ guided: includeGuided ? undefined : "0", from: range.from, to: range.to, team: range.team })}`),
   conversationReply: (body: { simulationId: string; scenarioId: string; transcript: Transcript; vars: Record<string, string> }) =>
     request<{ say: string; ended: boolean; customer: string }>("POST", "/api/conversation/reply", body),
   conversationCoach: (body: { simulationId: string; scenarioId: string; transcript: Transcript; vars: Record<string, string> }) =>
