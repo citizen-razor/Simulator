@@ -81,6 +81,13 @@ individual simulations (below).
 
 You can also click **Start blank** or **Build manually from N images** to author by hand.
 
+When it generates, Claude also suggests **tags** and a **grading scheme** from your libraries
+(it never invents new ones; Admin-Builders manage those) and, for tasks that involve a
+customer, an **AI customer** for the scenario: channel, situation and criteria. The notes
+after generation list what it suggested; pick which persona plays the customer in Settings.
+"Ask AI to change it" keeps everything Claude doesn't edit: personas, random data, grading
+targets, each scenario's persona and scheme choices, and table settings.
+
 ### The editor
 
 - **Draw** controls by dragging on the screen. Pick the kind first: button, link, hotspot

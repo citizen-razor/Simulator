@@ -15,7 +15,6 @@ Nothing right now.
   code); check the Player at phone sizes.
 - ⬜ **Video narration**: transcribe recordings' audio so the AI hears the explanation
   (needs a speech-to-text service).
-- ⬜ **AI suggestions for tags and rubric criteria** when generating a simulation.
 - ⬜ **Scheme-level defaults for screen/state checks**: let a scheme carry default
   conditions, for schemes written for one specific simulation.
 - ⬜ **Assignment reminders**: email or in-app notices before a due date (needs an email
@@ -115,6 +114,11 @@ Nothing right now.
   people); the Admin-Builder picks the person and their results and assignments move over
 - ✅ Performance by team and topic: filter to a leader's whole reporting tree (hidden below 3
   learners so no one's results can be singled out) and the course list by topic
+- ✅ AI suggestions when generating: tags from the library, a grading scheme from the library,
+  and an AI customer (channel, situation, criteria) for scenarios that involve one; listed in
+  the author's notes
+- ✅ Fixed: "Ask AI to change it" no longer drops personas, random data, tags, grading targets,
+  scenario persona/scheme choices, AI customers, or table settings
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

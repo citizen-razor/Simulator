@@ -32,6 +32,7 @@ import {
   MODEL,
   refineSimulation,
   type GenerateResult,
+  type LibraryContext,
   type StoredImage,
 } from "./generate";
 import {
@@ -88,6 +89,7 @@ import { withUserIds, mainBoard, scenarioBoard } from "../shared/leaderboard";
 import { reportingTree } from "../shared/people";
 import { sameName } from "../shared/assignments";
 import { finalScore } from "../shared/grading";
+import { DEFAULT_SCHEME_ID } from "../shared/library";
 import { analyzeSimulation, inDateRange, MIN_TEAM_LEARNERS, stats, teamAttempts } from "../shared/analytics";
 import type { Attempt } from "../shared/schema";
 
@@ -578,6 +580,15 @@ async function streamAi(res: Response, work: (send: (o: object) => void) => Prom
   res.end();
 }
 
+/** The tags and grading schemes Claude may choose from (the default scheme is "null"). */
+async function libraryContext(): Promise<LibraryContext> {
+  const [tax, grading] = await Promise.all([readTaxonomy(), readGrading()]);
+  return {
+    tags: tax.topics.flatMap((t) => t.tags.map((g) => ({ id: g.id, name: g.name, topic: t.name }))),
+    schemes: grading.schemes.filter((s) => s.id !== DEFAULT_SCHEME_ID).map((s) => ({ id: s.id, name: s.name, description: s.description ?? "" })),
+  };
+}
+
 app.post(
   "/api/generate",
   route(async (req, res) => {
@@ -590,7 +601,7 @@ app.post(
       images.push({ assetId, width: img.width, height: img.height, mediaType: img.mediaType, data: img.data, label: img.source ?? img.name });
     }
     await streamAi(res, async (progress) => {
-      const result = await generateSimulation(input, images, newId(), (p) => progress({ type: "progress", ...p }));
+      const result = await generateSimulation(input, images, newId(), (p) => progress({ type: "progress", ...p }), await libraryContext());
       result.simulation = await saveSimulation(result.simulation);
       return result;
     });
@@ -614,7 +625,8 @@ app.post(
       images.push({ assetId: s.imageAssetId, width: Math.round(height * s.aspect), height, mediaType, data: data.toString("base64"), label: `screen "${s.name}"` });
     }
     // Refinement returns the revised simulation without saving; the author reviews it in the editor.
-    await streamAi(res, (progress) => refineSimulation(sim, instruction, images, (p) => progress({ type: "progress", ...p })));
+    const lib = await libraryContext();
+    await streamAi(res, (progress) => refineSimulation(sim, instruction, images, (p) => progress({ type: "progress", ...p }), lib));
   }),
 );
 
