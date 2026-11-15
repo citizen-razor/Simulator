@@ -421,6 +421,11 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                   disabled={!!summary}
                   onSend={say}
                   onRetry={() => askCustomer(transcript)}
+                  onCoach={
+                    mode === "guided" && scenario
+                      ? () => api.conversationCoach({ simulationId: sim.id, scenarioId: scenario.id, transcript, vars: session.generated })
+                      : undefined
+                  }
                   onEnd={() => {
                     if (!session.completed && scenario && !conversationOnly(scenario) && !confirm("The task isn't finished yet. End the run anyway?")) return;
                     finish(session, session.completed || (!!scenario && conversationOnly(scenario)), mode);

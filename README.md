@@ -284,7 +284,9 @@ Claude. Builders set it up in the scenario's **Customer conversation** section:
   has none, count for the share of the score you set). A scenario with no steps is scored
   entirely on the conversation.
 
-In Guided and Scenario mode the conversation sits beside the screens. When the steps are done,
+In Guided and Scenario mode the conversation sits beside the screens. In Guided mode,
+**💡 What should I say?** suggests a next line and why it helps (the coach knows the goal and
+what good looks like, but not the customer's private details). When the steps are done,
 the learner wraps up with the customer and ends the conversation (End chat / Hang up / Finish).
 The transcript is saved with the attempt and shown on My progress and Results. If the AI can't
 judge a conversation, those criteria are left out rather than leaving the result waiting.

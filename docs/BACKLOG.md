@@ -30,7 +30,6 @@ Nothing right now.
   meet different customers (decided against for now; data on screens only).
 - ⬜ **Voice for AI customers**: speak and listen on phone and in-person conversations
   (needs speech-to-text and text-to-speech services); the channel is already stored.
-- ⬜ **Conversation coaching in Guided mode**: suggestions for what to say next.
 - ⬜ **Persona briefing card**: show the persona's details to the trainee up front (not chosen
   for now; the AI customer shares them when asked).
 - ⬜ **Clickable table rows**: let a table element's rows act like buttons (e.g. open an
@@ -112,6 +111,8 @@ Nothing right now.
   situation, an optional opening line, and criteria judged by AI at the end with a reason per
   criterion; criteria join the rubric (or carry their own weight); conversation-only scenarios;
   transcripts on My progress and Results; per-person hourly limits
+- ✅ Conversation coaching in Guided mode: "What should I say?" suggests the next line and why
+  (knows the goal, situation and criteria, not the customer's private details)
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

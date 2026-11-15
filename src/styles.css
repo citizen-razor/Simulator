@@ -542,3 +542,4 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .conversation-editor .cond-row input { flex: 1; min-width: 0; }
 .conversation-editor .cond-row select { width: auto; flex: none; }
 .conversation-editor .row .field { flex: 1; }
+.coach-tip { background: var(--accent-soft); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }

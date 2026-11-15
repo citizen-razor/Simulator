@@ -18,6 +18,7 @@ export function ConversationPanel({
   onSend,
   onRetry,
   onEnd,
+  onCoach,
 }: {
   channel: Channel;
   customer: string;
@@ -33,9 +34,23 @@ export function ConversationPanel({
   onSend: (text: string) => void;
   onRetry: () => void;
   onEnd: () => void;
+  /** Guided mode: ask for a suggestion of what to say next. */
+  onCoach?: () => Promise<{ say: string; why: string }>;
 }) {
   const info = CHANNEL_INFO[channel];
   const [draft, setDraft] = useState("");
+  const [tip, setTip] = useState<{ say: string; why: string } | null>(null);
+  const [tipState, setTipState] = useState<"idle" | "busy" | "failed">("idle");
+  const coach = async () => {
+    if (!onCoach) return;
+    setTipState("busy");
+    try {
+      setTip(await onCoach());
+      setTipState("idle");
+    } catch {
+      setTipState("failed");
+    }
+  };
   const log = useRef<HTMLDivElement>(null);
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight, behavior: "smooth" });
@@ -45,6 +60,7 @@ export function ConversationPanel({
     if (!text || busy || disabled) return;
     onSend(text.slice(0, 2000));
     setDraft("");
+    setTip(null);
   };
   const first = customer.split(" ")[0] || "The customer";
 
@@ -73,6 +89,24 @@ export function ConversationPanel({
         {customerLeft && <div className="conv-note small">{channel === "phone" ? `${first} has hung up.` : channel === "chat" ? `${first} has left the chat.` : `${first} has left.`}</div>}
       </div>
       {wrapUp && !customerLeft && <p className="conv-note small">All steps done. Wrap up with {first}, then {info.end.toLowerCase()}.</p>}
+      {onCoach && !customerLeft && (
+        <div className="conv-coach">
+          {tip ? (
+            <div className="coach-tip">
+              <div className="small"><b>💡 Try:</b> “{tip.say}”</div>
+              <div className="muted small">{tip.why}</div>
+              <div className="row">
+                <button className="link-btn add" onClick={() => setDraft(tip.say)}>Use this</button>
+                <button className="link-btn" onClick={() => setTip(null)}>Dismiss</button>
+              </div>
+            </div>
+          ) : (
+            <button className="link-btn add" onClick={coach} disabled={tipState === "busy" || disabled}>
+              {tipState === "busy" ? "Thinking…" : tipState === "failed" ? "💡 Couldn't get a suggestion. Try again" : "💡 What should I say?"}
+            </button>
+          )}
+        </div>
+      )}
       {!customerLeft && (
         <div className="conv-input">
           <textarea

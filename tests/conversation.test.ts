@@ -96,3 +96,15 @@ describe("AI customer", () => {
     expect(gradeSession(sim, s, STANDARD_SCHEME, 1_060_000).rubricWeight).toBe(100);
   });
 });
+
+describe("Guided coaching", () => {
+  it("knows the goal, situation and criteria but not the customer's private details", async () => {
+    const { coachPrompt } = await import("../shared/conversation");
+    const p = coachPrompt({ conversation: conv, scenarioTitle: "Printer", scenarioGoal: "Resolve it", transcript: [{ from: "customer", text: "Hi" }], vars: { ticketId: "TCK-1" } });
+    expect(p).toContain("ticket TCK-1 is still open");
+    expect(p).toContain("- Verified identity before sharing account details");
+    expect(p).toContain("CUSTOMER: Hi");
+    expect(p).not.toContain("4471-22"); // no dossier
+    expect(p).toMatch(/spoken/);
+  });
+});

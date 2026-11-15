@@ -2,6 +2,7 @@
  * The AI-played customer (prompts in shared/conversation.ts):
  *   POST /api/conversation/reply  the customer's next message
  *   POST /api/conversation/judge  the conversation criteria, judged at the end of a run
+ *   POST /api/conversation/coach  Guided mode: a suggestion for what to say next
  *
  * Any signed-in person can use these while playing. Everything that shapes the customer (the
  * persona, the brief, the criteria) is read from the stored simulation, never from the browser;
@@ -13,6 +14,7 @@ import { Router } from "express";
 import { z } from "zod";
 import {
   activeConversation,
+  coachPrompt,
   customerPersona,
   customerSystemPrompt,
   customerTurns,
@@ -34,15 +36,16 @@ const RequestSchema = z.object({
 });
 
 const Reply = z.object({ say: z.string(), ended: z.boolean() });
+const Suggestion = z.object({ say: z.string(), why: z.string() });
 const Judgement = z.object({ results: z.array(z.object({ id: z.string(), met: z.boolean(), reason: z.string() })) });
 
 // Per-person hourly allowances (in memory; reset on restart).
-const LIMITS = { reply: 200, judge: 30 };
-const usage = new Map<string, { at: number; reply: number; judge: number }>();
+const LIMITS = { reply: 200, judge: 30, coach: 60 };
+const usage = new Map<string, { at: number; reply: number; judge: number; coach: number }>();
 function spend(userId: string, kind: keyof typeof LIMITS) {
   const now = Date.now();
   let u = usage.get(userId);
-  if (!u || now - u.at > 3_600_000) usage.set(userId, (u = { at: now, reply: 0, judge: 0 }));
+  if (!u || now - u.at > 3_600_000) usage.set(userId, (u = { at: now, reply: 0, judge: 0, coach: 0 }));
   if (u[kind] >= LIMITS[kind]) throw new HttpError(429, "You've reached this hour's limit for the AI customer. Try again later.");
   u[kind]++;
 }
@@ -131,6 +134,24 @@ export function conversationRoutes(): Router {
           return j ? [{ id: `conv-${c.id}`, met: j.met, reason: j.reason.slice(0, 500) }] : [];
         }),
       };
+    }),
+  );
+  r.post(
+    "/coach",
+    handle(async (req) => {
+      const me = requireUser(req);
+      const { input, sc, conv } = await load(req.body);
+      spend(me.user.id, "coach");
+      const message = await getClient().beta.messages.parse({
+        model: MODEL,
+        max_tokens: 4000,
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+        output_config: { effort: "low", format: betaZodOutputFormat(Suggestion) },
+        messages: [{ role: "user", content: coachPrompt({ conversation: conv, scenarioTitle: sc.title, scenarioGoal: sc.goal, transcript: input.transcript, vars: input.vars }) }],
+      });
+      const out = checkReply(message);
+      return { say: out.say.trim().slice(0, 1000), why: out.why.trim().slice(0, 500) };
     }),
   );
   return r;

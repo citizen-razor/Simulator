@@ -105,6 +105,8 @@ export const api = {
     request<SimulationAnalysis>("GET", `/api/analytics/${encodeURIComponent(id)}${includeGuided ? "" : "?guided=0"}`),
   conversationReply: (body: { simulationId: string; scenarioId: string; transcript: Transcript; vars: Record<string, string> }) =>
     request<{ say: string; ended: boolean; customer: string }>("POST", "/api/conversation/reply", body),
+  conversationCoach: (body: { simulationId: string; scenarioId: string; transcript: Transcript; vars: Record<string, string> }) =>
+    request<{ say: string; why: string }>("POST", "/api/conversation/coach", body),
   conversationJudge: (body: { simulationId: string; scenarioId: string; transcript: Transcript; vars: Record<string, string> }) =>
     request<{ results: { id: string; met: boolean; reason: string }[] }>("POST", "/api/conversation/judge", body),
   taxonomy: () => request<Taxonomy>("GET", "/api/library/taxonomy"),
