@@ -147,7 +147,10 @@ tags, personas and schemes. Learners and Leaders don't see the page.
     them to simulations and scenarios.
   - Their details then appear on screens as
     `{{customer.name}}`, `{{customer.balance}}` or `{{customer.bills.1.amount}}`. A
-    **table** element shows a whole record table, e.g. `customer.bills`.
+    **table** element shows a whole record table, e.g. `customer.bills`. Set "Clicking a row"
+    to make rows clickable: the clicked row's value is stored (e.g. `{{selected_order}}`, with
+    each column as `{{selected_order.status}}`), the table's rules run (e.g. go to an order
+    screen), and a step can require a particular row.
   - Use invented details only; the editor reminds you, because simulations get exported
     and shared.
 - **Grading schemes:** how attempts are scored.

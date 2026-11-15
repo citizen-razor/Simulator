@@ -32,8 +32,6 @@ Nothing right now.
   (needs speech-to-text and text-to-speech services); the channel is already stored.
 - ⬜ **Persona briefing card**: show the persona's details to the trainee up front (not chosen
   for now; the AI customer shares them when asked).
-- ⬜ **Clickable table rows**: let a table element's rows act like buttons (e.g. open an
-  order).
 - ⬜ **Random values inside screenshots**: today random values appear in text elements and
   wireframes, not in the pixels of an uploaded screenshot.
 - ⬜ **Re-grade past attempts** when a scheme changes (today each attempt keeps the rules
@@ -113,6 +111,8 @@ Nothing right now.
   transcripts on My progress and Results; per-person hourly limits
 - ✅ Conversation coaching in Guided mode: "What should I say?" suggests the next line and why
   (knows the goal, situation and criteria, not the customer's private details)
+- ✅ Clickable table rows: a table can select a row by a column; the row's values become
+  variables, the table's rules run (e.g. open the order screen), and steps can require a row
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

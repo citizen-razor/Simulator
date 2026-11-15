@@ -48,6 +48,7 @@ function formatTime(sec: number) {
 function recordedStep(el: SimElement, value?: string): Step {
   const label = el.label || el.id;
   if (value === undefined) return { id: newId("step"), elementId: el.id, instruction: `Click "${label}".`, expect: "any" };
+  if (el.kind === "table") return { id: newId("step"), elementId: el.id, instruction: `Open ${value} in ${label}.`, expect: "eq", value };
   if (el.kind === "select") return { id: newId("step"), elementId: el.id, instruction: `Set ${label} to "${value}".`, expect: "eq", value };
   if (el.kind === "checkbox") {
     return { id: newId("step"), elementId: el.id, instruction: `${value === "true" ? "Check" : "Uncheck"} "${label}".`, expect: "eq", value };

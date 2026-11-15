@@ -36,6 +36,7 @@ import {
   type PenaltyEvent,
 } from "./schema";
 import { generateValues, newSeed } from "./random";
+import { parseTableVar } from "./personas";
 
 export type Mode = "open" | "guided" | "scenario";
 export type Tone = "info" | "success" | "error";
@@ -119,6 +120,14 @@ export function checkAll(conds: Condition[] | undefined, vars: Record<string, st
 
 export const isField = (el: SimElement) => FIELD_KINDS.includes(el.kind);
 export const fieldVar = (el: SimElement) => el.bindVar || el.id;
+
+/** A clicked table row's columns as <variable>.<column>, e.g. selected_order.status. */
+export function selectedRowVars(el: SimElement, value: string, vars: Record<string, string>): Record<string, string> {
+  const table = parseTableVar(vars[el.tableSource ?? ""]);
+  const row = table?.rows.find((r) => (r[el.rowKey ?? ""] ?? "") === value);
+  if (!table || !row) return {};
+  return Object.fromEntries(table.columns.map((c) => [`${fieldVar(el)}.${c.key}`, row[c.key] ?? ""]));
+}
 export const isVisible = (el: SimElement, vars: Record<string, string>) => checkAll(el.visibleIf, vars);
 
 export function getScreen(sim: Simulation, id: string): Screen | undefined {
@@ -317,7 +326,7 @@ export function interact(
   const feedback: Feedback[] = [];
   const screen = getScreen(sim, prev.screenId);
   const el = screen?.elements.find((e) => e.id === ev.elementId);
-  if (!screen || !el || !isVisible(el, prev.vars) || el.kind === "text" || el.kind === "table") {
+  if (!screen || !el || !isVisible(el, prev.vars) || el.kind === "text" || (el.kind === "table" && (!el.rowKey || ev.type !== "commit"))) {
     return { state: prev, feedback, blocked: false, completedStep: null };
   }
 
@@ -379,7 +388,7 @@ export function interact(
 
   // Apply the interaction to the simulated system.
   if (ev.type === "commit") {
-    state.vars = { ...state.vars, [fieldVar(el)]: ev.value };
+    state.vars = { ...state.vars, [fieldVar(el)]: ev.value, ...(el.kind === "table" ? selectedRowVars(el, ev.value, state.vars) : {}) };
     if (!state.touched.includes(el.id)) state.touched = [...state.touched, el.id];
   }
   runRules(el, state, sim, feedback);

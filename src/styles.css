@@ -543,3 +543,8 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .conversation-editor .cond-row select { width: auto; flex: none; }
 .conversation-editor .row .field { flex: 1; }
 .coach-tip { background: var(--accent-soft); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.sim-table tr.clickable-row { cursor: pointer; }
+.sim-table tr.clickable-row:hover td { background: #eef2ff; }
+.sim-table tr.clickable-row:focus-visible { outline: 2px solid #3b5bdb; outline-offset: -2px; }
+.sim-table tr.clickable-row.selected td { background: #e7ecff; font-weight: 600; }
+.highlight .sim-table tr.clickable-row td { background: #fff8e1; }

@@ -347,15 +347,19 @@ export default function Editor({ id }: { id: string }) {
   const extraVariables = (() => {
     const names: string[] = [];
     const tables: string[] = [];
+    const tableColumns: Record<string, { key: string; label: string }[]> = {};
     const assigned = [...sim.personas, ...sim.scenarios.flatMap((sc) => sc.personaOverrides.filter((o): o is typeof o & { personaId: string } => !!o.personaId))];
     for (const link of assigned) {
       const persona = personaLib?.personas.find((p) => p.id === link.personaId);
       if (!persona) continue;
       const tpl = personaLib?.templates.find((t) => t.id === persona.templateId) ?? null;
       names.push(...personaVariableNames(link.role, persona, tpl));
-      for (const t of tpl?.tables ?? []) tables.push(`${link.role}.${t.key}`);
+      for (const t of tpl?.tables ?? []) {
+        tables.push(`${link.role}.${t.key}`);
+        tableColumns[`${link.role}.${t.key}`] = t.columns.map((c) => ({ key: c.key, label: c.label }));
+      }
     }
-    return { names: [...new Set(names)], tables: [...new Set(tables)] };
+    return { names: [...new Set(names)], tables: [...new Set(tables)], tableColumns };
   })();
 
   const inspector = (() => {

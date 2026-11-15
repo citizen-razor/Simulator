@@ -84,6 +84,11 @@ export const ElementSchema = z.object({
   visibleIf: z.array(ConditionSchema).optional(),
   /** table: the variable holding the table, e.g. "customer.orders" (from a persona). */
   tableSource: z.string().optional(),
+  /**
+   * table: makes rows clickable. Clicking a row stores this column's value in the element's
+   * variable (bindVar, or its id), and every column as <variable>.<column>; then its rules run.
+   */
+  rowKey: z.string().max(40).optional(),
   rules: z.array(RuleSchema).default([]),
 });
 
