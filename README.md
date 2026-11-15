@@ -309,6 +309,14 @@ the learner wraps up with the customer and ends the conversation (End chat / Han
 The transcript is saved with the attempt and shown on My progress and Results. If the AI can't
 judge a conversation, those criteria are left out rather than leaving the result waiting.
 
+### Test mode (Builders)
+
+**▶ Test** in the editor (and the scenario's ▶ Guided / ▶ Scenario buttons) opens the Player in
+test mode; builders can also switch it on with **🧪 Test** in the Player. A test run shows a live
+**scoring trace** (each action and its verdict as it happens, with the score so far) and the full
+audit trail at the end. Test runs are never saved, so they don't count toward results,
+performance, leaderboards or assignments.
+
 ### Where your points came from
 
 Every scored run comes with a ledger of the score in step order, so learners see how they're

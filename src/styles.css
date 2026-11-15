@@ -564,3 +564,5 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .audit-body { overflow-wrap: anywhere; }
 .audit-pts { font-variant-numeric: tabular-nums; }
 .audit-trail.live { max-height: 320px; overflow-y: auto; }
+.test-banner { margin: 0; border-radius: 0; }
+.scoring-trace h3 { margin: 0; }

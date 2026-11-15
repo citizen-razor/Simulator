@@ -399,7 +399,7 @@ export default function Editor({ id }: { id: string }) {
             personaLib={personaLib}
             initialPathId={new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("path") ?? undefined}
             onRecord={(pathId) => goPlay(`/play/${sim.id}?record=${sc.id}&path=${pathId}`)}
-            onPlay={(mode) => goPlay(`/play/${sim.id}?mode=${mode}&scenario=${sc.id}`)}
+            onPlay={(mode) => goPlay(`/play/${sim.id}?mode=${mode}&scenario=${sc.id}&test=1`)}
           />
         );
       }
@@ -470,7 +470,7 @@ export default function Editor({ id }: { id: string }) {
         <button className="btn sm ghost" onClick={doUndo} disabled={!undo.current.stack.length} title="Undo (Ctrl+Z)">↶ Undo</button>
         <a className="btn sm ghost" href={`#/performance/${sim.id}`} onClick={(e) => { if (dirty && !confirm("Leave without saving your changes?")) e.preventDefault(); }}>Performance</a>
         <a className="btn sm ghost" href={exportUrl(sim.id)} download title={dirty ? "Exports the last saved version. Save first to include recent changes." : "Download as a file (includes images)"}>⤓ Export</a>
-        <button className="btn sm" onClick={() => goPlay(`/play/${sim.id}`)}>▶ Play</button>
+        <button className="btn sm" onClick={() => goPlay(`/play/${sim.id}?test=1`)} title="Play as a test: scoring shown live, nothing saved">▶ Test</button>
         <button className="btn sm primary" onClick={save} disabled={!dirty || saving}>{saving ? "Saving…" : "Save"}</button>
       </div>
       {showIssues && issues.length > 0 && (

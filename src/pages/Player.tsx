@@ -29,6 +29,7 @@ import { sessionPersonaVariables, type PersonaLibrary } from "../../shared/perso
 import { meetsRequirement, REQUIREMENT_TEXT, type Assignment } from "../../shared/assignments";
 import { useAuth } from "../lib/auth";
 import { PointsFlow, stepTitles } from "../components/PointsFlow";
+import { AuditTrail } from "../components/AuditTrail";
 import { breakdown } from "../../shared/breakdown";
 
 const MODES: { id: Mode; label: string; blurb: string }[] = [
@@ -84,6 +85,8 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   const auth = useAuth();
   // Attempts are saved under the signed-in account (the server sets this; it's sent for display).
   const trainee = auth.user?.name ?? "";
+  /** Builders' test runs: a live scoring trace, and nothing is saved. */
+  const testMode = query.get("test") === "1" && auth.isBuilder && !recordInto;
   const [, tick] = useState(0);
   const toastId = useRef(0);
 
@@ -201,7 +204,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
       grade = { ...settled.grading!, score: settled.score, passed: settled.passed, pendingManual: settled.grading!.rubric.filter((c) => c.met === null).length };
       setSummary({ completed, grade, durationSec: result.durationSec });
     }
-    if (!sc || m === "open" || recordInto) return;
+    if (!sc || m === "open" || recordInto || testMode) return; // test runs are never saved
     const { score: finalScore, passed, pendingManual: _pending, ...grading } = grade;
     api
       .addAttempt({
@@ -337,10 +340,31 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
             </select>
           )}
           <button className="btn sm" onClick={() => restart()}>↺ Restart</button>
+          {auth.isBuilder && !recordInto && (
+            <button
+              className={`btn sm ${testMode ? "primary" : "ghost"}`}
+              title={testMode ? "Leave test mode: runs are saved again" : "Test this simulation: see scoring live; runs aren't saved"}
+              onClick={() => {
+                const q = new URLSearchParams(query);
+                if (testMode) q.delete("test");
+                else q.set("test", "1");
+                q.set("mode", mode);
+                if (session.scenarioId) q.set("scenario", session.scenarioId);
+                navigate(`/play/${sim.id}?${q.toString()}`);
+              }}
+            >
+              🧪 {testMode ? "Testing" : "Test"}
+            </button>
+          )}
           {auth.isBuilder && <a className="btn sm ghost" href={`#/edit/${sim.id}`}>Edit</a>}
         </div>
       </div>
 
+      {testMode && (
+        <div className="alert info test-banner small">
+          🧪 <b>Test run.</b> Nothing is saved, so it never counts toward results, performance or leaderboards. The scoring trace shows how each action is judged.
+        </div>
+      )}
       <div className="player-body">
         <div className="stage">
           {mode === "guided" && stepTarget && stepTarget.screen.id !== screen.id && (
@@ -408,6 +432,17 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                     </p>
                   )}
                   <GradingInfo scheme={scheme} rubric={activeRubric(sim, scheme)} conversation={conv?.criteria ?? []} />
+                </section>
+              )}
+
+              {testMode && judged && scenario && (
+                <section className="panel scoring-trace">
+                  <div className="row">
+                    <h3>Scoring trace</h3>
+                    <span className="spacer" />
+                    <b title="Score if the run ended now">{gradeSession(sim, session, scheme).score}/100 now</b>
+                  </div>
+                  <AuditTrail log={session.log} b={breakdown({ ...score, score: 0, completed: session.completed, errors: session.errors, hintsUsed: session.hintsUsed, grading: gradeSession(sim, session, scheme), penalties: session.penalties })} live />
                 </section>
               )}
 
@@ -579,6 +614,13 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                 )}
               />
             </details>
+            )}
+            {testMode && (
+              <details className="transcript audit" open>
+                <summary>🧪 Every action and how it was scored ({session.log.length})</summary>
+                <AuditTrail log={session.log} b={breakdown({ ...score, completed: summary.completed, errors: session.errors, hintsUsed: session.hintsUsed, grading: summary.grade, penalties: session.penalties, score: summary.grade.score })} />
+                <p className="muted small">Test run: not saved.</p>
+              </details>
             )}
             <p className="muted">
               {score.stepsCompleted} of {score.stepsTotal} steps · {session.errors} error{session.errors === 1 ? "" : "s"} · {session.hintsUsed} hint
