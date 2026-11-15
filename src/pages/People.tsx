@@ -147,12 +147,80 @@ export default function People() {
         </table>
       </div>
 
+      <LinkResults people={people} />
+
       <div className="people-tools">
         <AddPerson people={people} onAdded={(name, email, pw) => { setSecret({ label: `Temporary password for ${name} (${email}):`, value: pw }); load(); }} />
         <ImportPeople onDone={load} />
         <ScimPanel />
       </div>
     </div>
+  );
+}
+
+/**
+ * Results saved before accounts, under a typed name that matches no one (or several people).
+ * Shown only when there are some.
+ */
+function LinkResults({ people }: { people: User[] }) {
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof api.unlinkedResults>>>([]);
+  const [pick, setPick] = useState<Record<string, string>>({});
+  const [done, setDone] = useState("");
+  const [error, setError] = useState("");
+  const load = () => api.unlinkedResults().then(setRows).catch((e) => setError(e.message));
+  useEffect(() => {
+    load();
+  }, []);
+  if (!rows.length && !done) return null;
+  const active = [...people].filter((p) => p.active).sort((a, b) => a.name.localeCompare(b.name));
+  const link = async (trainee: string) => {
+    setError("");
+    try {
+      const userId = pick[trainee];
+      const r = await api.linkResults(trainee, userId);
+      setDone(`Linked ${r.attempts} result${r.attempts === 1 ? "" : "s"}${r.assignments ? ` and ${r.assignments} assignment${r.assignments === 1 ? "" : "s"}` : ""} for "${trainee}" to ${people.find((p) => p.id === userId)?.name}.`);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  return (
+    <section className="panel link-results">
+      <h3>Results saved under typed names</h3>
+      <p className="muted small">
+        These results were saved before sign-in, under a name that matches no one here, or several people. Choose who each name is, and their results
+        and assignments move to that person's progress and the leaderboard.
+      </p>
+      {done && <div className="alert info small">{done}</div>}
+      {error && <div className="alert error small">{error}</div>}
+      {rows.length > 0 && (
+        <table className="results-table">
+          <thead><tr><th>Typed name</th><th>Results</th><th>Last</th><th>Who is it?</th><th /></tr></thead>
+          <tbody>
+            {rows.map((r) => {
+              const candidates = active.filter((p) => r.candidates.includes(p.id));
+              return (
+                <tr key={r.trainee}>
+                  <td><b>{r.trainee}</b>{candidates.length > 1 && <div className="muted small">{candidates.length} people have this name</div>}</td>
+                  <td>{r.attempts}</td>
+                  <td>{new Date(r.last).toLocaleDateString()}</td>
+                  <td>
+                    <select value={pick[r.trainee] ?? ""} aria-label={`Person for ${r.trainee}`} onChange={(e) => setPick({ ...pick, [r.trainee]: e.target.value })}>
+                      <option value="">Choose a person…</option>
+                      {candidates.length > 0 && (
+                        <optgroup label="Same name">{candidates.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.email})</option>)}</optgroup>
+                      )}
+                      <optgroup label="Everyone">{active.filter((p) => !r.candidates.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.email})</option>)}</optgroup>
+                    </select>
+                  </td>
+                  <td><button className="btn sm primary" disabled={!pick[r.trainee]} onClick={() => link(r.trainee)}>Link</button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }
 

@@ -115,6 +115,8 @@ export const api = {
     request<{ say: string; why: string }>("POST", "/api/conversation/coach", body),
   conversationJudge: (body: { simulationId: string; scenarioId: string; transcript: Transcript; vars: Record<string, string> }) =>
     request<{ results: { id: string; met: boolean; reason: string }[] }>("POST", "/api/conversation/judge", body),
+  unlinkedResults: () => request<{ trainee: string; attempts: number; last: string; candidates: string[] }[]>("GET", "/api/people/unlinked"),
+  linkResults: (trainee: string, userId: string) => request<{ attempts: number; assignments: number }>("POST", "/api/people/link", { trainee, userId }),
   taxonomy: () => request<Taxonomy>("GET", "/api/library/taxonomy"),
   saveTaxonomy: (t: Taxonomy) => request<Taxonomy>("PUT", "/api/library/taxonomy", t),
   grading: () => request<GradingLibrary>("GET", "/api/library/grading"),

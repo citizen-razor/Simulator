@@ -27,6 +27,25 @@ export function withUserIds(attempts: Attempt[], people: Person[]): Attempt[] {
   });
 }
 
+/**
+ * Results saved before accounts (by typed name) that can't be matched to one person
+ * automatically: no one has that name, or several people do. For the Admin-Builder's linking tool.
+ */
+export function unlinkedNames(attempts: Attempt[], people: Person[]) {
+  const groups = new Map<string, { trainee: string; attempts: number; last: string; candidates: string[] }>();
+  for (const a of attempts) {
+    if (a.userId || !a.trainee.trim()) continue;
+    const matches = people.filter((p) => sameName(p.name, a.trainee));
+    if (matches.length === 1) continue; // linked automatically
+    const key = a.trainee.trim().toLowerCase();
+    const g = groups.get(key) ?? { trainee: a.trainee.trim(), attempts: 0, last: "", candidates: matches.map((p) => p.id) };
+    g.attempts++;
+    if (a.finishedAt > g.last) g.last = a.finishedAt;
+    groups.set(key, g);
+  }
+  return [...groups.values()].sort((x, y) => y.last.localeCompare(x.last));
+}
+
 export interface BoardRow {
   rank: number;
   userId: string;

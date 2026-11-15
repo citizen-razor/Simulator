@@ -7,6 +7,8 @@
  *   POST   /api/people/:id/password  Admin-Builders: reset to a one-time password
  *   POST   /api/people/import        Admin-Builders: CSV of email, name, manager_email, roles
  *   GET/POST/DELETE /api/people/scim  Admin-Builders: SCIM token status / issue / revoke
+ *   GET    /api/people/unlinked      Admin-Builders: results saved under typed names that match no one (or several)
+ *   POST   /api/people/link          Admin-Builders: attach those results to a person
  */
 import type { Express, NextFunction, Request, Response } from "express";
 import { z } from "zod";
@@ -22,7 +24,8 @@ import {
   temporaryPassword,
   updateUsers,
 } from "./auth";
-import { HttpError } from "./storage";
+import { HttpError, linkNamedResults, listAttempts } from "./storage";
+import { unlinkedNames } from "../shared/leaderboard";
 
 type Handler = (req: Request, res: Response) => Promise<unknown>;
 const route = (fn: Handler) => (req: Request, res: Response, next: NextFunction) => fn(req, res).catch(next);
@@ -35,6 +38,24 @@ const PersonInput = z.object({
 });
 
 export function peopleRoutes(app: Express) {
+  app.get(
+    "/api/people/unlinked",
+    route(async (req, res) => {
+      const r = requirePermission(req, "people.manage");
+      res.json(unlinkedNames(await listAttempts(), r.people));
+    }),
+  );
+
+  app.post(
+    "/api/people/link",
+    route(async (req, res) => {
+      const r = requirePermission(req, "people.manage");
+      const { trainee, userId } = z.object({ trainee: z.string().trim().min(1).max(200), userId: z.string().max(100) }).parse(req.body);
+      if (!r.people.some((p) => p.id === userId)) throw new HttpError(404, "That person isn't in your organisation.");
+      res.json(await linkNamedResults(trainee, userId));
+    }),
+  );
+
   app.get(
     "/api/people/directory",
     route(async (req, res) => {

@@ -191,7 +191,9 @@ not just direct reports. Loops (someone ending up as their own manager) are refu
 set roles and managers, deactivate people (they're signed out at once and can't sign in;
 their history is kept), reset passwords, and **import a CSV** with the columns
 `email, name, manager_email, roles`. Everyone can change their own password under their name
-in the top bar.
+in the top bar. Results saved before sign-in existed, under a typed
+name that matches no one (or several people), appear under **Results saved under typed names**
+on the People page; choose who each name is and their results and assignments move over.
 
 **SCIM (sync from Okta, Microsoft Entra ID, …):** on the People page, turn on SCIM to get a
 bearer token, then point your identity provider's SCIM 2.0 app at `https://<your

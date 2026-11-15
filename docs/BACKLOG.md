@@ -22,8 +22,6 @@ Nothing right now.
   service).
 - ⬜ **SCIM groups → roles**: optionally map identity-provider groups to Builder /
   Admin-Builder roles (today roles are managed in the app).
-- ⬜ **Link older name-only results to people**: an Admin-Builder tool to attach results saved
-  before accounts (by typed name) to the right person when names don't match exactly.
 - ⬜ **Several organisations in the app**: a way to create and switch organisations (the
   storage and permissions already separate them).
 - ⬜ **Random persona per run**: let a scenario draw from a set of personas so trainees
@@ -115,6 +113,8 @@ Nothing right now.
   variables, the table's rules run (e.g. open the order screen), and steps can require a row
 - ✅ Performance: date range (with last 30/90 days), week-by-week table, and CSV download of
   the course list and of a course's figures (scenarios, weeks, steps, penalties, criteria)
+- ✅ Link older name-only results: People lists typed names that match no one (or several
+  people); the Admin-Builder picks the person and their results and assignments move over
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

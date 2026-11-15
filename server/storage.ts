@@ -282,6 +282,26 @@ export async function deleteScheme(schemeId: string) {
   await writeAtomic(GRADING_FILE(), JSON.stringify(lib, null, 2));
 }
 
+/**
+ * Attach results and assignments saved under a typed name (before accounts) to a person.
+ * Only records without an account are changed; returns how many of each.
+ */
+export async function linkNamedResults(trainee: string, userId: string): Promise<{ attempts: number; assignments: number }> {
+  const same = (name: string) => name.trim().toLowerCase() === trainee.trim().toLowerCase();
+  const job = attemptsLock.then(async () => {
+    const all = await readAllAttempts();
+    let n = 0;
+    const next = all.map((a) => (!a.userId && same(a.trainee) ? (n++, { ...a, userId }) : a));
+    if (n) await writeAtomic(ATTEMPTS_FILE(), JSON.stringify(next, null, 2));
+    return n;
+  });
+  attemptsLock = job.catch(() => undefined);
+  const attempts = await job;
+  let assignments = 0;
+  await updateAssignments((all) => all.map((a) => (!a.userId && same(a.trainee) ? (assignments++, { ...a, userId }) : a)));
+  return { attempts, assignments };
+}
+
 /** Change one saved attempt (used for trainer marking). Serialised with other attempt writes. */
 export function updateAttempt(attemptId: string, fn: (a: Attempt) => Attempt): Promise<Attempt> {
   const job = attemptsLock.then(async () => {

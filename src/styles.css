@@ -551,3 +551,4 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .date-range { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 8px 0 12px; }
 .date-range label { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
 .weekly { margin-top: 16px; }
+.link-results { margin-top: 16px; }
