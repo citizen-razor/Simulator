@@ -309,6 +309,24 @@ the learner wraps up with the customer and ends the conversation (End chat / Han
 The transcript is saved with the attempt and shown on My progress and Results. If the AI can't
 judge a conversation, those criteria are left out rather than leaving the result waiting.
 
+### Quality (Builders)
+
+**Quality** shows whether each simulation scores properly. For each simulation:
+- **Automatic checks:** every path of every scenario is played by a "perfect trainee" who does
+  exactly what each step says. It must finish with no errors and full points; if a step's control
+  is on a different screen than the trainee is on, a value is never accepted, or the success
+  checks aren't met, it says which step and why. A perfect run must also meet the automatic
+  rubric criteria (one it misses is usually pointed at the wrong screen or state). It also flags
+  grading checks that aren't set up, broken references, and AI customers without a persona,
+  situation or criteria.
+- **Warning signs from results** (from 5 attempts): a step where half or more lose points, a
+  criterion nobody (or everybody) meets, a scenario few finish, AI marks reviewers often correct.
+- **Review attempts:** open any recent attempt to check its score by hand (points breakdown,
+  audit trail, conversation). Builders see learners as "Learner A, B…"; Admin-Builders also see
+  names. To correct an AI-judged mark, choose **Change** and write why: the score updates at once,
+  the learner sees "Reviewed by a person" with the note, and the AI's original mark and every
+  change are kept.
+
 ### Test mode (Builders)
 
 **▶ Test** in the editor (and the scenario's ▶ Guided / ▶ Scenario buttons) opens the Player in

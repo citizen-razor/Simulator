@@ -320,6 +320,10 @@ export const AttemptSchema = z.object({
   troubleSteps: z.array(z.string()).default([]),
   /** Each error and hint in order, with the step (1-based, on the path taken) it happened on. */
   penalties: z.array(PenaltyEventSchema).default([]),
+  /** Corrections people made to AI-judged marks, oldest first. */
+  reviews: z
+    .array(z.object({ criterionId: z.string(), label: z.string(), from: z.boolean().nullable(), to: z.boolean(), note: z.string().max(500), by: z.string(), at: z.string() }))
+    .optional(),
   /** Everything the trainee did and how each action was scored (absent on older attempts). */
   log: z.array(AuditEventSchema).max(1000).default([]),
   /** Grading details (absent on attempts saved before the grading library existed). */
@@ -340,6 +344,8 @@ export const AttemptSchema = z.object({
           /** Judged by AI from the conversation (with a one-line reason for the learner). */
           ai: z.boolean().optional(),
           reason: z.string().max(500).optional(),
+          /** A person changed this AI mark (the reviewer's call stands; the AI's is kept). */
+          review: z.object({ originalMet: z.boolean().nullable(), note: z.string().max(500), at: z.string() }).optional(),
           /** null = waiting for a trainer (or the AI) to mark it. */
           met: z.boolean().nullable(),
         }),

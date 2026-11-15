@@ -2,6 +2,7 @@
 import type { Assignment } from "../shared/assignments";
 import type { Role, User } from "../shared/people";
 import type { SimulationAnalysis, Stats } from "../shared/analytics";
+import type { Health } from "../shared/health";
 
 export interface DirectoryPerson {
   id: string;
@@ -35,6 +36,9 @@ export interface PerformanceRow {
   hidden?: boolean;
   stats: Stats;
 }
+
+/** An attempt as reviewers see it: "Learner A" etc.; the name only for Admin-Builders. */
+export type ReviewAttempt = Attempt & { learner: string; name?: string };
 
 export interface SimSummary {
   id: string;
@@ -120,6 +124,11 @@ export const api = {
     request<{ results: { id: string; met: boolean; reason: string }[] }>("POST", "/api/conversation/judge", body),
   unlinkedResults: () => request<{ trainee: string; attempts: number; last: string; candidates: string[] }[]>("GET", "/api/people/unlinked"),
   linkResults: (trainee: string, userId: string) => request<{ attempts: number; assignments: number }>("POST", "/api/people/link", { trainee, userId }),
+  quality: () =>
+    request<{ id: string; title: string; status: Health["status"]; errors: number; warnings: number; paths: number }[]>("GET", "/api/quality"),
+  simQuality: (id: string) => request<{ health: Health; attempts: ReviewAttempt[]; total: number }>("GET", `/api/quality/${encodeURIComponent(id)}`),
+  reviewMark: (attemptId: string, criterionId: string, met: boolean, note: string) =>
+    request<ReviewAttempt>("POST", `/api/attempts/${encodeURIComponent(attemptId)}/review`, { criterionId, met, note }),
   taxonomy: () => request<Taxonomy>("GET", "/api/library/taxonomy"),
   saveTaxonomy: (t: Taxonomy) => request<Taxonomy>("PUT", "/api/library/taxonomy", t),
   grading: () => request<GradingLibrary>("GET", "/api/library/grading"),

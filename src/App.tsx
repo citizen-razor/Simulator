@@ -10,6 +10,7 @@ import Library from "./pages/Library";
 import MyTraining from "./pages/MyTraining";
 import People from "./pages/People";
 import Performance from "./pages/Performance";
+import Quality from "./pages/Quality";
 import Player from "./pages/Player";
 import Progress from "./pages/Progress";
 import Results from "./pages/Results";
@@ -40,6 +41,7 @@ export default function App() {
     new: auth.isBuilder,
     edit: auth.isBuilder,
     performance: auth.isBuilder,
+    quality: auth.isBuilder,
     assignments: canSeeOthers,
     results: canSeeOthers,
     libraries: auth.isBuilder, // Builders view; only Admin-Builders edit
@@ -65,6 +67,7 @@ export default function App() {
           {canSeeOthers && nav("#/assignments", "Assignments", "assignments")}
           {canSeeOthers && nav("#/results", "Results", "results")}
           {auth.isBuilder && nav("#/performance", "Performance", "performance")}
+          {auth.isBuilder && nav("#/quality", "Quality", "quality")}
           {(auth.isAdmin || auth.isBuilder) && nav("#/libraries", "Libraries", "libraries")}
           {auth.isAdmin && nav("#/people", "People", "people")}
         </nav>
@@ -96,6 +99,8 @@ export default function App() {
           <Progress key={id ?? ""} userId={id} />
         ) : page === "results" ? (
           <Results simulationId={id} />
+        ) : page === "quality" ? (
+          <Quality key={id ?? ""} simulationId={id} />
         ) : page === "performance" ? (
           <Performance key={id ?? ""} simulationId={id} />
         ) : page === "people" ? (

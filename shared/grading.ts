@@ -140,6 +140,31 @@ export interface GradeResult extends AttemptGrading {
   pendingManual: number;
 }
 
+/**
+ * A person's correction of an AI-judged mark. The reviewer's call replaces the AI's; the AI's
+ * original is kept on the criterion and every change is added to the attempt's history.
+ * Setting it back to what the AI said removes the review mark.
+ */
+export function reviewAiMark<A extends Pick<Attempt, "grading" | "completed" | "score" | "passed" | "reviews">>(
+  a: A,
+  criterionId: string,
+  met: boolean,
+  note: string,
+  by: string,
+  at = new Date().toISOString(),
+): A {
+  const g = a.grading;
+  const c = g?.rubric.find((x) => x.id === criterionId);
+  if (!g || !c || !c.ai) throw new Error("Only AI-judged criteria can be reviewed here.");
+  const originalMet = c.review ? c.review.originalMet : c.met;
+  const rubric = g.rubric.map((x) =>
+    x.id !== criterionId ? x : { ...x, met, review: met === originalMet ? undefined : { originalMet, note, at } },
+  );
+  const grading = { ...g, rubric };
+  const { score, passed } = finalScore(grading, a.completed);
+  return { ...a, grading, score, passed, reviews: [...(a.reviews ?? []), { criterionId, label: c.label, from: c.met, to: met, note, by, at }] };
+}
+
 /** Grade a session against a scheme (live during play, and when the attempt is saved). */
 export function gradeSession(sim: Simulation, state: SessionState, scheme: GradingScheme, now = Date.now()): GradeResult {
   const ctx = contextFor(sim, state, scheme, now);

@@ -566,3 +566,18 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .audit-trail.live { max-height: 320px; overflow-y: auto; }
 .test-banner { margin: 0; border-radius: 0; }
 .scoring-trace h3 { margin: 0; }
+.flow-reason.struck { text-decoration: line-through; }
+.flow-review { margin-top: 2px; }
+
+/* Quality */
+.problems { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.problem { display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: baseline; }
+.problem-icon { font-weight: 700; text-align: center; }
+.problem.error .problem-icon { color: var(--error); }
+.problem.warning .problem-icon { color: var(--warn); }
+.problem.info .problem-icon { color: var(--muted); }
+h2.tight { margin: 0; }
+.path-checks td { vertical-align: top; }
+.ai-review { margin-bottom: 12px; }
+.review-form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.review-form textarea { font: inherit; }

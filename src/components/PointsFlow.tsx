@@ -32,7 +32,12 @@ function Line({ l }: { l: FlowLine }) {
         {l.kind === "step" && !l.done && <span className="muted small"> (not reached)</span>}
         {l.kind === "criterion" && l.manual && <span className="muted small"> (trainer-marked)</span>}
         {l.kind === "criterion" && l.ai && <span className="muted small"> (conversation, judged by AI)</span>}
-        {l.reason && <div className="flow-reason small">{l.reason}</div>}
+        {l.reason && <div className={`flow-reason small ${l.review ? "struck" : ""}`}>{l.review ? `AI: ${l.reason}` : l.reason}</div>}
+        {l.review && (
+          <div className="flow-review small">
+            👤 Reviewed by a person: {l.review.note} <span className="muted">(the AI had marked it {l.review.originalMet ? "met" : "not met"})</span>
+          </div>
+        )}
       </span>
       <span className="flow-pts">
         {l.gained > 0 && <span className="pts-gain">+{fmt(l.gained)}</span>}

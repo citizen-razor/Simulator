@@ -138,3 +138,29 @@ describe("grading schemes", () => {
     expect(evaluateObjectives(sim, s, rubricScheme).map((o) => o.met)).toEqual([true, true]);
   });
 });
+
+describe("reviewing AI marks", () => {
+  it("lets a person correct an AI mark, keeps the AI's original, and rescores", async () => {
+    const { reviewAiMark } = await import("../shared/grading");
+    const a = {
+      completed: true, score: 85, passed: true, reviews: undefined,
+      grading: {
+        schemeId: "s", schemeName: "S", passScore: 70, masteryScore: 90, pointsScore: 100, rubricWeight: 50, overtimeSec: 0,
+        rubric: [
+          { id: "done", label: "Done", weight: 1, manual: false, met: true },
+          { id: "conv-tone", label: "Was polite", weight: 1, manual: false, ai: true, met: false, reason: "You were curt." },
+        ],
+      },
+    };
+    const r1 = reviewAiMark(a, "conv-tone", true, "They apologised twice; that counts.", "u-rev", "2026-11-15T00:00:00Z");
+    expect(r1.score).toBe(100);
+    expect(r1.grading!.rubric[1]).toMatchObject({ met: true, review: { originalMet: false, note: "They apologised twice; that counts." } });
+    expect(r1.reviews).toEqual([{ criterionId: "conv-tone", label: "Was polite", from: false, to: true, note: "They apologised twice; that counts.", by: "u-rev", at: "2026-11-15T00:00:00Z" }]);
+    // Setting it back to the AI's call removes the review mark but keeps the history.
+    const r2 = reviewAiMark(r1, "conv-tone", false, "On reflection the AI was right.", "u-rev");
+    expect((r2.grading!.rubric[1] as { review?: unknown }).review).toBeUndefined();
+    expect(r2.score).toBe(75);
+    expect(r2.reviews).toHaveLength(2);
+    expect(() => reviewAiMark(a, "done", false, "x", "u")).toThrow(/Only AI-judged/);
+  });
+});

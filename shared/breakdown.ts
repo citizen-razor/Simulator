@@ -39,6 +39,8 @@ export interface FlowLine {
   /** Conversation criteria judged by AI, with the reason given to the learner. */
   ai?: boolean;
   reason?: string;
+  /** A person corrected the AI's mark: their note, and what the AI had said. */
+  review?: { originalMet: boolean | null; note: string };
 }
 
 export interface Breakdown {
@@ -146,6 +148,7 @@ export function breakdown(a: AttemptLike, stepTitles: string[] = []): Breakdown 
       manual: c.manual,
       ai: c.ai,
       reason: c.reason,
+      review: c.review ? { originalMet: c.review.originalMet, note: c.review.note } : undefined,
       worth: r1(worth),
       gained: c.met === true ? worth : 0,
       missed: c.met === false ? worth : 0,

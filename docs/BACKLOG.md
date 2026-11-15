@@ -11,6 +11,9 @@ Nothing right now.
 
 ## To do
 
+- ⬜ **AI judgement spot-check rate**: a running "how often reviewers agree with the AI" figure
+  per criterion (corrections already feed a warning on the Quality page).
+
 - ⬜ **Phone access**: let phones on the same Wi-Fi play simulations (with an access
   code); check the Player at phone sizes.
 - ⬜ **Video narration**: transcribe recordings' audio so the AI hears the explanation
@@ -119,6 +122,13 @@ Nothing right now.
   the author's notes
 - ✅ Fixed: "Ask AI to change it" no longer drops personas, random data, tags, grading targets,
   scenario persona/scheme choices, AI customers, or table settings
+- ✅ Quality assurance for builders: an audit trail on every attempt (each action and how it
+  was scored, passwords hidden); test mode (live scoring trace, never saved); a Quality page
+  per simulation with automatic checks (every path auto-played by a "perfect trainee", which
+  must finish with no errors and full points; perfect runs must meet the automatic rubric;
+  unset grading checks; AI customers without a persona) and warning signs from results;
+  anonymised review of attempts ("Learner A"), with corrections to AI-judged marks (note
+  required, learner sees it, AI's original and history kept)
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

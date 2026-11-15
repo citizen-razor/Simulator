@@ -19,7 +19,7 @@
 import "dotenv/config";
 import express, { type NextFunction, type Request, type Response } from "express";
 import path from "node:path";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import sample from "../samples/helpdesk.json";
 import { SimulationSchema } from "../shared/schema";
 import {
@@ -88,7 +88,8 @@ import { scimRouter } from "./scim";
 import { withUserIds, mainBoard, scenarioBoard } from "../shared/leaderboard";
 import { reportingTree } from "../shared/people";
 import { sameName } from "../shared/assignments";
-import { finalScore } from "../shared/grading";
+import { finalScore, reviewAiMark } from "../shared/grading";
+import { checkSimulation } from "../shared/health";
 import { DEFAULT_SCHEME_ID } from "../shared/library";
 import { analyzeSimulation, inDateRange, MIN_TEAM_LEARNERS, stats, teamAttempts } from "../shared/analytics";
 import type { Attempt } from "../shared/schema";
@@ -422,6 +423,76 @@ app.post(
 );
 
 app.use("/api/conversation", conversationRoutes());
+
+/** Correct an AI-judged mark (Builders and Admin-Builders). A note is required, and the learner sees it. */
+app.post(
+  "/api/attempts/:id/review",
+  route(async (req, res) => {
+    const r = requirePermission(req, "simulations.build");
+    const input = z.object({ criterionId: z.string().max(100), met: z.boolean(), note: z.string().trim().min(1).max(500) }).parse(req.body);
+    const updated = await updateAttempt(param(req, "id"), (a) => {
+      try {
+        return reviewAiMark(a, input.criterionId, input.met, input.note, r.user.id);
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
+    });
+    res.json(reviewView(r, [updated])[0]);
+  }),
+);
+
+/**
+ * Attempts for review. Builders see them anonymised ("Learner A", "B"… in order of each
+ * person's first attempt on this simulation); Admin-Builders also see names.
+ */
+function reviewView(r: AuthedRequest, attempts: Attempt[]) {
+  const named = userCan(r, "people.manage");
+  const key = (a: Attempt) => a.userId ?? `name:${a.trainee.trim().toLowerCase()}`;
+  const order: string[] = [];
+  for (const a of [...attempts].sort((x, y) => x.finishedAt.localeCompare(y.finishedAt))) if (!order.includes(key(a))) order.push(key(a));
+  const label = (i: number) => `Learner ${i < 26 ? String.fromCharCode(65 + i) : `${String.fromCharCode(65 + Math.floor(i / 26) - 1)}${String.fromCharCode(65 + (i % 26))}`}`;
+  return attempts.map(({ userId: _u, trainee, reviews, ...a }) => {
+    void _u;
+    return {
+      ...a,
+      learner: label(order.indexOf(key({ userId: _u, trainee } as Attempt))),
+      name: named ? trainee : undefined,
+      // Reviewers stay anonymous to each other and to learners: only that a person reviewed it.
+      reviews: (reviews ?? []).map(({ by: _b, ...x }) => (void _b, x)),
+      trainee: "",
+    };
+  });
+}
+
+/** Health of every simulation (Builders): status and counts, for the Quality list. */
+app.get(
+  "/api/quality",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const [summaries, grading, personas, attempts] = await Promise.all([listSimulations(), readGrading(), readPersonas(), listAttempts()]);
+    const out = [];
+    for (const s of summaries) {
+      const sim = await getSimulation(s.id);
+      const h = checkSimulation(sim, grading.schemes, personas, attempts.filter((a) => a.simulationId === s.id));
+      out.push({ id: s.id, title: s.title, status: h.status, errors: h.problems.filter((p) => p.level === "error").length, warnings: h.problems.filter((p) => p.level === "warning").length, paths: h.paths.length });
+    }
+    const rank = { problems: 0, check: 1, healthy: 2 };
+    res.json(out.sort((a, b) => rank[a.status] - rank[b.status] || a.title.localeCompare(b.title)));
+  }),
+);
+
+/** One simulation's health, and its recent attempts for review (anonymised for Builders). */
+app.get(
+  "/api/quality/:simId",
+  route(async (req, res) => {
+    const r = requirePermission(req, "simulations.build");
+    const sim = await getSimulation(param(req, "simId"));
+    const [grading, personas, raw] = await Promise.all([readGrading(), readPersonas(), listAttempts(sim.id)]);
+    const attempts = withUserIds(raw, r.people);
+    const recent = [...attempts].sort((a, b) => b.finishedAt.localeCompare(a.finishedAt)).slice(0, 200);
+    res.json({ health: checkSimulation(sim, grading.schemes, personas, attempts), attempts: reviewView(r, recent), total: attempts.length });
+  }),
+);
 
 /** Trainer marking: set manual rubric criteria to met / not met / unmarked (null), then rescore. */
 app.post(
