@@ -18,7 +18,7 @@ const toAttempt = (sim: Simulation, s: SessionState, scheme: GradingScheme): Att
   return {
     id: "a1", trainee: "", simulationId: sim.id, simulationTitle: "", scenarioId: "resolve-printer", scenarioTitle: "", mode: "scenario",
     assisted: false, completed: s.completed, score, errors: s.errors, hintsUsed: s.hintsUsed, durationSec: 60, stepsCompleted: s.stepIndex,
-    stepsTotal: 7, pathName: "Main path", passed, mistakes: [], troubleSteps: s.troubleSteps, penalties: s.penalties, grading, finishedAt: "",
+    stepsTotal: 7, pathName: "Main path", passed, mistakes: [], troubleSteps: s.troubleSteps, penalties: s.penalties, log: s.log, grading, finishedAt: "",
   };
 };
 const titles = (sim: Simulation) => sim.scenarios.find((x) => x.id === "resolve-printer")!.steps.map((x) => x.instruction);

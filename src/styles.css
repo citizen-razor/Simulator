@@ -552,3 +552,15 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .date-range label { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
 .weekly { margin-top: 16px; }
 .link-results { margin-top: 16px; }
+
+/* Audit trail */
+.audit-trail { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.audit-trail li { display: grid; grid-template-columns: 42px 18px 1fr auto; gap: 6px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.audit-trail li:last-child { border-bottom: 0; }
+.audit-icon { text-align: center; color: var(--muted); }
+.audit-good .audit-icon { color: var(--success); }
+.audit-bad .audit-icon { color: var(--error); }
+.audit-warn .audit-icon { color: var(--warn); }
+.audit-body { overflow-wrap: anywhere; }
+.audit-pts { font-variant-numeric: tabular-nums; }
+.audit-trail.live { max-height: 320px; overflow-y: auto; }

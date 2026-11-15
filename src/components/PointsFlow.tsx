@@ -8,6 +8,7 @@ import { breakdown, stepTitles, type Breakdown, type FlowLine } from "../../shar
 export { stepTitles };
 import type { Attempt, Simulation } from "../../shared/schema";
 import { api } from "../api";
+import { AuditTrail } from "./AuditTrail";
 
 const fmt = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(1));
 
@@ -101,5 +102,14 @@ export function AttemptPointsFlow({ attempt, compact }: { attempt: Attempt; comp
       .catch(() => setTitles([]));
   }, [attempt]);
   if (!titles) return <p className="muted small">Loading…</p>;
-  return <PointsFlow b={breakdown(attempt, titles)} compact={compact} />;
+  const b = breakdown(attempt, titles);
+  return (
+    <>
+      <PointsFlow b={b} compact={compact} />
+      <details className="transcript audit">
+        <summary>Every action and how it was scored ({attempt.log.length})</summary>
+        <AuditTrail log={attempt.log} b={b} />
+      </details>
+    </>
+  );
 }

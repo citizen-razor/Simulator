@@ -323,6 +323,11 @@ graded and where to improve. It appears on the end-of-run summary, on **My progr
 
 The lines add up to the score.
 
+Under it, **Every action and how it was scored** is the run's audit trail: each click and entry
+in order, with the time, the screen, what was entered (passwords hidden), and the verdict:
+step done, wrong control, wrong value, hint, or "not the next step" (filling in a later field,
+which is never penalised). Penalties show what they cost, so anyone can check a score by hand.
+
 ### Trainee progress
 
 **My progress** shows your own record. Leaders get **My team** (everyone in their reporting

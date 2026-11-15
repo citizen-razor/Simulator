@@ -6,7 +6,7 @@ let n = 0;
 const at = (userId: string | undefined, scenarioId: string, score: number, p: Partial<Attempt> = {}): Attempt => ({
   id: `a${++n}`, userId, trainee: p.trainee ?? "", simulationId: "sim", simulationTitle: "Sim", scenarioId, scenarioTitle: scenarioId,
   mode: "scenario", assisted: false, completed: true, score, errors: 0, hintsUsed: 0, durationSec: 100, stepsCompleted: 5,
-  stepsTotal: 5, pathName: "", passed: true, mistakes: [], troubleSteps: [], penalties: [], finishedAt: `2026-11-${10 + (n % 9)}T00:00:00Z`, ...p,
+  stepsTotal: 5, pathName: "", passed: true, mistakes: [], troubleSteps: [], penalties: [], log: [], finishedAt: `2026-11-${10 + (n % 9)}T00:00:00Z`, ...p,
 });
 const people = [{ id: "ana", name: "Ana" }, { id: "ben", name: "Ben" }, { id: "cai", name: "Cai" }, { id: "dee", name: "Dee" }];
 
@@ -52,7 +52,7 @@ describe("results saved under typed names", () => {
   it("lists only names that match no one or several people", async () => {
     const { unlinkedNames } = await import("../shared/leaderboard");
     const people = [{ id: "u1", name: "Sam Lee" }, { id: "u2", name: "Alex Kim" }, { id: "u3", name: "alex kim" }] as Parameters<typeof unlinkedNames>[1];
-    const base = { id: "x", simulationId: "s", simulationTitle: "", scenarioId: "c", scenarioTitle: "", mode: "scenario" as const, assisted: false, completed: true, score: 90, errors: 0, hintsUsed: 0, durationSec: 1, stepsCompleted: 1, stepsTotal: 1, pathName: "", passed: true, mistakes: [], troubleSteps: [], penalties: [] };
+    const base = { id: "x", simulationId: "s", simulationTitle: "", scenarioId: "c", scenarioTitle: "", mode: "scenario" as const, assisted: false, completed: true, score: 90, errors: 0, hintsUsed: 0, durationSec: 1, stepsCompleted: 1, stepsTotal: 1, pathName: "", passed: true, mistakes: [], troubleSteps: [], penalties: [], log: [] };
     const rows = unlinkedNames(
       [
         { ...base, trainee: "Sam Lee", finishedAt: "2026-01-01" }, // matches one person: linked automatically

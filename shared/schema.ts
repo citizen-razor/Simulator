@@ -261,6 +261,32 @@ export const stepTargets = (st: Step): string[] => [st.elementId, ...(st.alsoEle
 export type Simulation = z.infer<typeof SimulationSchema>;
 
 /** A finished Scenario/Guided run, saved for the Results page. */
+/**
+ * One entry in a run's audit trail: what the trainee did and how it was scored, so a person can
+ * check any score step by step. outcome:
+ *   step         completed the step shown in stepNo
+ *   error        used the wrong control (a penalty)
+ *   wrong-value  right control, wrong value (a penalty)
+ *   ignored      filled in a different field (never penalised; it may count for a later step)
+ *   hint         asked for a hint (a penalty)
+ *   free         not judged (exploring, or after the task was finished)
+ *   guided       switched to guided help (the run counts as assisted from here)
+ */
+export const AuditEventSchema = z.object({
+  /** Seconds since the run started. */
+  at: z.number(),
+  outcome: z.enum(["step", "error", "wrong-value", "ignored", "hint", "free", "guided"]),
+  screen: z.string().max(200).default(""),
+  /** The control used (its label). */
+  target: z.string().max(300).default(""),
+  /** What was entered or chosen (masked for password-like fields). */
+  value: z.string().max(500).optional(),
+  /** The step completed, or the step that was expected when it went wrong. */
+  stepNo: z.number().int().optional(),
+  step: z.string().max(500).optional(),
+});
+export type AuditEvent = z.infer<typeof AuditEventSchema>;
+
 export const PenaltyEventSchema = z.object({
   kind: z.enum(["error", "hint"]),
   stepNo: z.number().int().min(1),
@@ -294,6 +320,8 @@ export const AttemptSchema = z.object({
   troubleSteps: z.array(z.string()).default([]),
   /** Each error and hint in order, with the step (1-based, on the path taken) it happened on. */
   penalties: z.array(PenaltyEventSchema).default([]),
+  /** Everything the trainee did and how each action was scored (absent on older attempts). */
+  log: z.array(AuditEventSchema).max(1000).default([]),
   /** Grading details (absent on attempts saved before the grading library existed). */
   grading: z
     .object({

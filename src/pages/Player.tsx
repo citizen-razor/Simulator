@@ -225,6 +225,7 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
         mistakes: s.mistakes,
         troubleSteps: s.troubleSteps,
         penalties: s.penalties,
+        log: s.log,
         conversation: convNow ? { channel: convNow.channel, customer: s.vars[`${convNow.role}.name`] || "Customer", messages: transcript } : undefined,
         data: Object.keys(s.generated).length ? s.generated : undefined,
         seed: Object.keys(s.generated).length ? s.seed : undefined,

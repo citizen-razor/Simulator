@@ -13,7 +13,7 @@ const rubric = (met: (boolean | null)[]) => [
 const at = (p: Partial<Attempt>): Attempt => ({
   id: `a${++n}`, userId: `u${n}`, trainee: "", simulationId: sim.id, simulationTitle: sim.title, scenarioId: "resolve-printer",
   scenarioTitle: "Resolve", mode: "scenario", assisted: false, completed: true, score: 90, errors: 0, hintsUsed: 0, durationSec: 60,
-  stepsCompleted: 7, stepsTotal: 7, pathName: "Main path", passed: true, mistakes: [], troubleSteps: [], penalties: [], finishedAt: "2026-11-14T00:00:00Z",
+  stepsCompleted: 7, stepsTotal: 7, pathName: "Main path", passed: true, mistakes: [], troubleSteps: [], penalties: [], log: [], finishedAt: "2026-11-14T00:00:00Z",
   ...p,
 });
 const graded = (met: (boolean | null)[], extra: Partial<Attempt> = {}): Attempt =>

@@ -24,7 +24,7 @@ function attempt(p: Partial<Attempt>): Attempt {
     pathName: "",
     passed: null,
     mistakes: [],
-    troubleSteps: [], penalties: [],
+    troubleSteps: [], penalties: [], log: [],
     finishedAt: `2026-11-${String(10 + n).padStart(2, "0")}T10:00:00Z`,
     ...p,
   };
