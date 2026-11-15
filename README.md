@@ -266,6 +266,29 @@ learners, so you can see what to improve. It shows totals and averages only and 
 Attempts saved before this was added didn't record which step each error or hint was on, so they're
 left out of the step-by-step view and counted in everything else.
 
+### AI-played customers
+
+A scenario can have a customer the learner talks to while they work the system, played by
+Claude. Builders set it up in the scenario's **Customer conversation** section:
+- **How they're in touch:** chat, phone call or in person. Learners type for now. The channel
+  sets how the customer talks (chat-style typing, spoken words, or face to face with brief
+  actions such as "[slides a card across the counter]") and how the panel looks. Voice can be
+  added later.
+- **Who:** the persona playing that role in the scenario. The customer knows their own details
+  (the same record the screens show) and shares them only when asked.
+- **The customer's situation:** why they're in touch, how they feel, what they want, and
+  what calms them down. An optional opening line can set their first words.
+- **What good looks like:** criteria such as "Verified identity before sharing account details",
+  each weighted ×1–×5. When the run ends, Claude judges the conversation against each one and
+  gives the learner a one-line reason. These criteria join the rubric (or, if the grading scheme
+  has none, count for the share of the score you set). A scenario with no steps is scored
+  entirely on the conversation.
+
+In Guided and Scenario mode the conversation sits beside the screens. When the steps are done,
+the learner wraps up with the customer and ends the conversation (End chat / Hang up / Finish).
+The transcript is saved with the attempt and shown on My progress and Results. If the AI can't
+judge a conversation, those criteria are left out rather than leaving the result waiting.
+
 ### Where your points came from
 
 Every scored run comes with a ledger of the score in step order, so learners see how they're
@@ -365,6 +388,8 @@ shared/people.ts      roles, hierarchy, permissions, CSV parsing
 shared/leaderboard.ts leaderboard ranking
 shared/analytics.ts   course performance for builders (aggregate only)
 shared/breakdown.ts   an attempt's score as a step-by-step ledger of points gained and lost
+shared/conversation.ts AI-played customers: prompts, persona details, conversation criteria
+server/conversation.ts customer replies and conversation judging (Claude calls)
 samples/              the built-in Helpdesk sample
 tests/                engine and AI-conversion tests
 ```
@@ -411,7 +436,10 @@ Box fine-tuning adds one smaller AI call per screenshot screen (two images in, a
 of boxes out). Generation uses `claude-opus-5-5` by default (set `SIM_MODEL` in `.env` to change it). Cost
 depends on the amount of input (each screenshot is roughly 1,500 tokens) and mostly on the
 size of the simulation written back. Expect well under a few dollars per generation; check
-actual usage in the Claude Console. Playing and editing simulations makes no AI calls.
+actual usage in the Claude Console. Playing and editing simulations makes no AI calls, except
+scenarios with an AI customer: one short call per customer reply (at low effort, for speed) and
+one call to judge the conversation at the end. Each person is limited to 200 customer replies and
+30 judgements an hour.
 
 ## Known limitations and next steps
 

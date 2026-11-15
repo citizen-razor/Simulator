@@ -177,7 +177,7 @@ async function buildContent(input: GenerateInput, images: StoredImage[]): Promis
 export type Progress = (p: { phase: "thinking" | "writing"; chars: number }) => void;
 
 let client: Anthropic | null = null;
-const getClient = () => (client ??= new Anthropic());
+export const getClient = () => (client ??= new Anthropic());
 
 async function callClaude(content: Content[], onProgress: Progress): Promise<Draft> {
   const stream = getClient().beta.messages.stream({

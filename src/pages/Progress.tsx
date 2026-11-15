@@ -17,6 +17,7 @@ import type { Attempt } from "../../shared/schema";
 import { api } from "../api";
 import { ScoreTrend } from "../components/ScoreTrend";
 import { AttemptPointsFlow } from "../components/PointsFlow";
+import { TranscriptView } from "../components/ConversationPanel";
 import { Redirect } from "../components/Redirect";
 
 const STATUS: Record<ScenarioStatus, { icon: string; label: string; cls: string; help: string }> = {
@@ -292,7 +293,10 @@ function TraineeDetail({ name, displayName, attempts, simTags, taxonomy, assignm
               </tr>
               {open === a.id && (
                 <tr className="detail">
-                  <td colSpan={5}><div className="flow-wrap"><AttemptPointsFlow attempt={a} /></div></td>
+                  <td colSpan={5}>
+                    <div className="flow-wrap"><AttemptPointsFlow attempt={a} /></div>
+                    {a.conversation && <div className="flow-wrap"><TranscriptView conversation={a.conversation} /></div>}
+                  </td>
                 </tr>
               )}
             </Fragment>

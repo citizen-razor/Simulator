@@ -23,6 +23,7 @@ import {
   type Objective,
 } from "./library";
 import type { Attempt, Simulation } from "./schema";
+import { activeConversation, conversationOnly, conversationRubric } from "./conversation";
 
 type AttemptGrading = NonNullable<Attempt["grading"]>;
 
@@ -39,13 +40,15 @@ export function activeRubric(sim: Pick<Simulation, "grading">, scheme: GradingSc
 }
 
 /**
- * For attempts saved while trainer marking was on (or before it was optional): drop the
- * trainer-marked criteria still waiting, and settle the score and pass/fail without them.
+ * Settle an attempt that's still waiting on someone: drop trainer-marked criteria still unmarked
+ * (where marking is off) and AI-judged ones the AI couldn't judge, and work out the score and
+ * pass/fail without them.
  */
-export function settleUnmarked<A extends Pick<Attempt, "grading" | "completed" | "score" | "passed">>(a: A): A {
+export function settleUnmarked<A extends Pick<Attempt, "grading" | "completed" | "score" | "passed">>(a: A, which: { manual: boolean } = { manual: true }): A {
   const g = a.grading;
-  if (!g || !g.rubric.some((c) => c.manual && c.met === null)) return a;
-  const rubric = g.rubric.filter((c) => !(c.manual && c.met === null));
+  const waiting = (c: (typeof g & object)["rubric"][number]) => c.met === null && (c.ai || (which.manual && c.manual));
+  if (!g || !g.rubric.some(waiting)) return a;
+  const rubric = g.rubric.filter((c) => !waiting(c));
   const grading = { ...g, rubric };
   const { score, passed } = finalScore(grading, a.completed);
   return { ...a, grading, score, passed };
@@ -145,6 +148,9 @@ export function gradeSession(sim: Simulation, state: SessionState, scheme: Gradi
   const overtimeSec = limit !== null ? Math.max(0, ctx.durationSec - limit) : 0;
   const overtimePenalty = Math.ceil(overtimeSec / 60) * scheme.points.overtimePenaltyPerMin;
   const pointsScore = Math.max(0, base.score - overtimePenalty);
+  const sc = getScenario(sim, state.scenarioId);
+  const conv = activeConversation(sc);
+  const convRubric = conversationRubric(conv);
   const rubric = activeRubric(sim, scheme).map((c: Criterion) => ({
     id: c.id,
     label: c.label,
@@ -158,8 +164,10 @@ export function gradeSession(sim: Simulation, state: SessionState, scheme: Gradi
     passScore: scheme.points.passScore,
     masteryScore: scheme.points.masteryScore,
     pointsScore,
-    rubricWeight: scheme.rubricWeight,
-    rubric,
+    // A conversation-only scenario is all rubric; otherwise the scheme's weight, or the
+    // conversation's own weight when the scheme has no rubric.
+    rubricWeight: sc && conversationOnly(sc) ? 100 : scheme.rubricWeight > 0 || !convRubric.length ? scheme.rubricWeight : conv!.weight,
+    rubric: [...rubric, ...convRubric],
     overtimeSec,
     pointsLost: {
       errors: state.errors * scheme.points.errorPenalty,

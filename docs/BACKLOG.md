@@ -28,8 +28,11 @@ Nothing right now.
   storage and permissions already separate them).
 - ⬜ **Random persona per run**: let a scenario draw from a set of personas so trainees
   meet different customers (decided against for now; data on screens only).
-- ⬜ **Persona briefing card / AI-played customer**: show the persona to the trainee, or
-  let Claude role-play them in a chat (not chosen for now).
+- ⬜ **Voice for AI customers**: speak and listen on phone and in-person conversations
+  (needs speech-to-text and text-to-speech services); the channel is already stored.
+- ⬜ **Conversation coaching in Guided mode**: suggestions for what to say next.
+- ⬜ **Persona briefing card**: show the persona's details to the trainee up front (not chosen
+  for now; the AI customer shares them when asked).
 - ⬜ **Clickable table rows**: let a table element's rows act like buttons (e.g. open an
   order).
 - ⬜ **Random values inside screenshots**: today random values appear in text elements and
@@ -104,6 +107,11 @@ Nothing right now.
 - ✅ No waiting on people: trainer-marked criteria are skipped unless a builder turns on
   "Include trainer-marked criteria" for a simulation (off by default); results waiting for
   marking in simulations without it are settled automatically
+- ✅ AI-played customers: a scenario's persona played by Claude beside the screens, over chat,
+  phone or in person (typed for now). Shares details only when asked; builder writes the
+  situation, an optional opening line, and criteria judged by AI at the end with a reason per
+  criterion; criteria join the rubric (or carry their own weight); conversation-only scenarios;
+  transcripts on My progress and Results; per-person hourly limits
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

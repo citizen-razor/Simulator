@@ -519,3 +519,26 @@ button.sim-el { border: 0; background: transparent; cursor: pointer; padding: 0 
 .flow-table td { font-variant-numeric: tabular-nums; }
 .flow-table tfoot td { background: var(--surface); }
 .pts-pending { color: var(--warn); }
+
+/* Conversation with the AI customer */
+.conversation { display: flex; flex-direction: column; gap: 8px; }
+.conv-head { display: flex; gap: 10px; align-items: center; }
+.conv-icon { font-size: 22px; }
+.conv-log { display: flex; flex-direction: column; gap: 6px; max-height: 320px; min-height: 120px; overflow-y: auto; padding: 4px 2px; }
+.conv-msg { max-width: 88%; padding: 7px 10px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.conv-msg.customer { align-self: flex-start; background: var(--surface-2); border-bottom-left-radius: 4px; }
+.conv-msg.learner { align-self: flex-end; background: var(--accent); color: white; border-bottom-right-radius: 4px; }
+.channel-phone .conv-msg, .channel-in-person .conv-msg { border-radius: 8px; }
+.conv-typing { font-style: italic; }
+.conv-note { color: var(--muted); text-align: center; margin: 2px 0; }
+.conv-input { display: flex; gap: 6px; align-items: flex-end; }
+.conv-input textarea { flex: 1; resize: vertical; min-height: 38px; font: inherit; }
+.transcript { margin: 8px 0; }
+.transcript > summary { cursor: pointer; font-weight: 600; }
+.transcript .conv-log { max-height: none; }
+.flow-reason { color: var(--muted); margin-top: 2px; }
+.judging { margin: 16px 0; }
+.conversation-editor .cond-row { display: flex; gap: 6px; align-items: center; }
+.conversation-editor .cond-row input { flex: 1; min-width: 0; }
+.conversation-editor .cond-row select { width: auto; flex: none; }
+.conversation-editor .row .field { flex: 1; }

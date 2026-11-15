@@ -82,6 +82,7 @@ import {
   type AuthedRequest,
 } from "./auth";
 import { peopleRoutes } from "./people";
+import { conversationRoutes } from "./conversation";
 import { scimRouter } from "./scim";
 import { withUserIds, mainBoard, scenarioBoard } from "../shared/leaderboard";
 import { reportingTree } from "../shared/people";
@@ -406,6 +407,8 @@ app.post(
     }
   }),
 );
+
+app.use("/api/conversation", conversationRoutes());
 
 /** Trainer marking: set manual rubric criteria to met / not met / unmarked (null), then rescore. */
 app.post(

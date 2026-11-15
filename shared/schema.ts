@@ -141,6 +141,35 @@ export const PersonaOverrideSchema = z
 export type PersonaLink = z.infer<typeof PersonaLinkSchema>;
 export type PersonaOverride = z.infer<typeof PersonaOverrideSchema>;
 
+/** How the learner and the AI customer talk. Typed for now; "phone" and "in-person" set the style. */
+export const Channels = ["chat", "phone", "in-person"] as const;
+export type Channel = (typeof Channels)[number];
+
+/**
+ * An AI-played customer for a scenario (see shared/conversation.ts). The customer is the
+ * persona playing `role`; the brief says what they want, how they feel and what they know.
+ * Criteria are judged by Claude from the transcript at the end of the run.
+ */
+export const ConversationSchema = z.object({
+  enabled: z.boolean().default(false),
+  channel: z.enum(Channels).default("chat"),
+  role: z.string().max(30).default("customer"),
+  /** The situation, from the customer's side: why they're getting in touch, their mood, what they want. */
+  brief: z.string().max(4000).default(""),
+  /** The customer's first words (optional; otherwise Claude opens in character). */
+  opening: z.string().max(500).default(""),
+  /** What good looks like, judged by AI at the end: e.g. "Verified identity before sharing account details". */
+  criteria: z.array(z.object({ id: z.string().max(40), label: z.string().max(200), weight: z.number().int().min(1).max(5).default(1) })).max(12).default([]),
+  /** Share of the score from the rubric when the grading scheme has no rubric of its own (percent). */
+  weight: z.number().int().min(0).max(100).default(30),
+});
+export type Conversation = z.infer<typeof ConversationSchema>;
+
+export const TranscriptSchema = z
+  .array(z.object({ from: z.enum(["learner", "customer"]), text: z.string().max(2000) }))
+  .max(100);
+export type Transcript = z.infer<typeof TranscriptSchema>;
+
 export const ScenarioSchema = z.object({
   id,
   title: z.string(),
@@ -164,6 +193,8 @@ export const ScenarioSchema = z.object({
    * scenario has); null = no persona for that role here; left out = the simulation's persona.
    */
   personaOverrides: z.array(PersonaOverrideSchema).default([]),
+  /** An AI-played customer the learner talks to during the scenario (off unless set up). */
+  conversation: ConversationSchema.optional(),
 });
 
 /** Per-simulation targets for a grading scheme's screen/state checks (see shared/library.ts). */
@@ -273,7 +304,10 @@ export const AttemptSchema = z.object({
           label: z.string(),
           weight: z.number(),
           manual: z.boolean(),
-          /** null = waiting for a trainer to mark it. */
+          /** Judged by AI from the conversation (with a one-line reason for the learner). */
+          ai: z.boolean().optional(),
+          reason: z.string().max(500).optional(),
+          /** null = waiting for a trainer (or the AI) to mark it. */
           met: z.boolean().nullable(),
         }),
       ),
@@ -291,6 +325,8 @@ export const AttemptSchema = z.object({
         .optional(),
     })
     .optional(),
+  /** The conversation with the AI customer, if the scenario has one. */
+  conversation: z.object({ channel: z.enum(Channels), customer: z.string().max(100), messages: TranscriptSchema }).optional(),
   /** Random values this run used, and the seed that produced them. */
   data: z.record(z.string(), z.string()).optional(),
   seed: z.number().optional(),

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { Attempt } from "../../shared/schema";
 import { AttemptPointsFlow } from "../components/PointsFlow";
+import { TranscriptView } from "../components/ConversationPanel";
 import { api } from "../api";
 import { useAdmin } from "../lib/admin";
 
@@ -113,6 +114,7 @@ export default function Results({ simulationId }: { simulationId?: string }) {
                     <td colSpan={11}>
                       {a.grading && <RubricDetail attempt={a} onUpdated={(u) => setAttempts((xs) => xs!.map((x) => (x.id === u.id ? u : x)))} />}
                       <div className="flow-wrap"><AttemptPointsFlow attempt={a} /></div>
+                      {a.conversation && <div className="flow-wrap"><TranscriptView conversation={a.conversation} /></div>}
                       {a.data && (
                         <p className="small run-data">
                           <b>This run's data:</b>{" "}

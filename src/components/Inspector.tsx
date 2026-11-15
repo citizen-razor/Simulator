@@ -1,4 +1,6 @@
 /** Property panels for the editor's right-hand side. Each takes a value and an onChange. */
+import { resolveScheme } from "../../shared/grading";
+import { ConversationEditor } from "./ConversationEditor";
 import { createContext, useContext, useEffect, useState } from "react";
 import {
   ActionTypes,
@@ -446,6 +448,15 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
           <ScenarioPersonas sim={sim} scenario={scenario} lib={personaLib} onChange={(o) => set({ personaOverrides: o })} />
         </>
       )}
+
+      <h4>Customer conversation</h4>
+      <ConversationEditor
+        scenario={scenario}
+        sim={sim}
+        personaLib={personaLib}
+        scheme={schemes ? resolveScheme(sim, scenario.id, schemes) : null}
+        onChange={(c) => set({ conversation: c })}
+      />
 
       <h4>Steps</h4>
       <p className="muted small">

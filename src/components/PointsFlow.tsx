@@ -30,6 +30,8 @@ function Line({ l }: { l: FlowLine }) {
         {l.label}
         {l.kind === "step" && !l.done && <span className="muted small"> (not reached)</span>}
         {l.kind === "criterion" && l.manual && <span className="muted small"> (trainer-marked)</span>}
+        {l.kind === "criterion" && l.ai && <span className="muted small"> (conversation, judged by AI)</span>}
+        {l.reason && <div className="flow-reason small">{l.reason}</div>}
       </span>
       <span className="flow-pts">
         {l.gained > 0 && <span className="pts-gain">+{fmt(l.gained)}</span>}
@@ -47,7 +49,8 @@ export function PointsFlow({ b, compact = false }: { b: Breakdown; compact?: boo
   // In compact mode, only show steps where something happened (plus a summary line).
   const quiet = b.steps.filter((l) => l.done && l.lost === 0);
   const shownSteps = compact && b.steps.length > 4 ? b.steps.filter((l) => !(l.done && l.lost === 0)) : b.steps;
-  const quietGain = quiet.reduce((n, l) => n + l.gained, 0);
+  // From the exact share, not the rounded lines, so 7 clean steps of 60 show +60, not +60.2.
+  const quietGain = (quiet.length * b.pointsShare) / Math.max(1, b.steps.length);
   return (
     <div className="points-flow">
       <p className="muted small">

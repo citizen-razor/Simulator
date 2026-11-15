@@ -198,6 +198,8 @@ export async function listAttempts(simulationId?: string): Promise<Attempt[]> {
 
 /** Attempts in simulations without trainer marking never wait: settle any unmarked criteria. */
 async function settleWhereNoMarking(attempts: Attempt[]): Promise<Attempt[]> {
+  // AI-judged criteria are never left waiting: if the AI couldn't judge them, they're dropped.
+  attempts = attempts.map((a) => settleUnmarked(a, { manual: false }));
   const waiting = new Set(attempts.filter((a) => a.grading?.rubric.some((c) => c.manual && c.met === null)).map((a) => a.simulationId));
   if (!waiting.size) return attempts;
   const marking = new Map<string, boolean>();

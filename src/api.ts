@@ -24,7 +24,7 @@ export interface LeaderRow {
 }
 import type { GradingLibrary, GradingScheme, Taxonomy } from "../shared/library";
 import type { Persona, PersonaLibrary, PersonaTemplate } from "../shared/personas";
-import type { Attempt, Simulation } from "../shared/schema";
+import type { Attempt, Simulation, Transcript } from "../shared/schema";
 
 export interface PerformanceRow {
   id: string;
@@ -103,6 +103,10 @@ export const api = {
   performance: () => request<PerformanceRow[]>("GET", "/api/analytics"),
   simPerformance: (id: string, includeGuided = true) =>
     request<SimulationAnalysis>("GET", `/api/analytics/${encodeURIComponent(id)}${includeGuided ? "" : "?guided=0"}`),
+  conversationReply: (body: { simulationId: string; scenarioId: string; transcript: Transcript; vars: Record<string, string> }) =>
+    request<{ say: string; ended: boolean; customer: string }>("POST", "/api/conversation/reply", body),
+  conversationJudge: (body: { simulationId: string; scenarioId: string; transcript: Transcript; vars: Record<string, string> }) =>
+    request<{ results: { id: string; met: boolean; reason: string }[] }>("POST", "/api/conversation/judge", body),
   taxonomy: () => request<Taxonomy>("GET", "/api/library/taxonomy"),
   saveTaxonomy: (t: Taxonomy) => request<Taxonomy>("PUT", "/api/library/taxonomy", t),
   grading: () => request<GradingLibrary>("GET", "/api/library/grading"),
