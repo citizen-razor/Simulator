@@ -265,6 +265,9 @@ learners, so you can see what to improve. It shows totals and averages only and 
     ones are still awaiting marking;
   - **where unfinished runs stopped**, and which **paths** were taken.
   - Untick **Include Guided runs** to see Scenario mode only.
+- **Dates and export:** pick a date range (or Last 30 / 90 days) on either page; a course
+  shows a week-by-week table; **Download CSV** saves the figures for a spreadsheet (still
+  totals and averages only).
 
 Attempts saved before this was added didn't record which step each error or hint was on, so they're
 left out of the step-by-step view and counted in everything else.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import sample from "../samples/helpdesk.json";
-import { analyzeSimulation } from "../shared/analytics";
+import { analyzeSimulation, inDateRange, overviewCsv, performanceCsv, weekly } from "../shared/analytics";
 import { SimulationSchema, type Attempt } from "../shared/schema";
 
 const sim = SimulationSchema.parse(sample);
@@ -78,5 +78,26 @@ describe("course performance", () => {
 
   it("can leave out guided runs", () => {
     expect(analyzeSimulation(sim, attempts, false).overall.attempts).toBe(4);
+  });
+
+  it("filters by date and groups by week, filling empty weeks", () => {
+    const xs = [at({ finishedAt: "2026-11-02T10:00:00Z" }), at({ finishedAt: "2026-11-05T10:00:00Z", score: 50, passed: false }), at({ finishedAt: "2026-11-19T10:00:00Z" })];
+    expect(inDateRange(xs, "2026-11-05", "2026-11-19")).toHaveLength(2);
+    expect(inDateRange(xs, undefined, "2026-11-04")).toHaveLength(1);
+    const w = weekly(xs);
+    expect(w.map((x) => [x.week, x.attempts])).toEqual([["2026-11-02", 2], ["2026-11-09", 0], ["2026-11-16", 1]]);
+    expect(w[0]).toMatchObject({ avgScore: 70, passRate: 0.5 });
+  });
+
+  it("exports the figures as CSV, safely", () => {
+    const csv = performanceCsv("Help desk", analyzeSimulation(sim, attempts));
+    const lines = csv.trim().split("\r\n");
+    expect(lines[0]).toMatch(/^Scenario,Type,Item,Attempts,Learners/);
+    expect(lines[1]).toMatch(/^Help desk,Course,,5,4,80,/);
+    expect(csv).toContain(",Criterion,Professional notes,3,,,,,,5,,,50,10");
+    expect(csv).toContain(",Step,5. Set the status to Resolved.,");
+    expect(csv).not.toMatch(/ana|ben|cai|dee/);
+    // Formula-looking text is neutralised; commas and quotes are quoted.
+    expect(overviewCsv([{ title: '=HYPERLINK("x"), y', scenarios: 1, stats: analyzeSimulation(sim, []).overall }])).toContain(`"'=HYPERLINK(""x""), y"`);
   });
 });

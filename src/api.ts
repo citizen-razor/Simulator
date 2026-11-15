@@ -73,6 +73,12 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
+/** "?a=1&b=2" from the values that are set ("" when none are). */
+function query(params: Record<string, string | undefined>): string {
+  const q = new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => !!e[1])).toString();
+  return q ? `?${q}` : "";
+}
+
 export const api = {
   status: () => request<{ model: string; aiConfigured: boolean }>("GET", "/api/status"),
   list: () => request<SimSummary[]>("GET", "/api/simulations"),
@@ -100,9 +106,9 @@ export const api = {
   issueScim: () => request<{ token: string; path: string }>("POST", "/api/people/scim"),
   revokeScim: () => request<void>("DELETE", "/api/people/scim"),
   leaderboard: (scope: string) => request<{ scope: string; rows: LeaderRow[] }>("GET", `/api/leaderboard?scope=${encodeURIComponent(scope)}`),
-  performance: () => request<PerformanceRow[]>("GET", "/api/analytics"),
-  simPerformance: (id: string, includeGuided = true) =>
-    request<SimulationAnalysis>("GET", `/api/analytics/${encodeURIComponent(id)}${includeGuided ? "" : "?guided=0"}`),
+  performance: (range: { from?: string; to?: string } = {}) => request<PerformanceRow[]>("GET", `/api/analytics${query({ from: range.from, to: range.to })}`),
+  simPerformance: (id: string, includeGuided = true, range: { from?: string; to?: string } = {}) =>
+    request<SimulationAnalysis>("GET", `/api/analytics/${encodeURIComponent(id)}${query({ guided: includeGuided ? undefined : "0", from: range.from, to: range.to })}`),
   conversationReply: (body: { simulationId: string; scenarioId: string; transcript: Transcript; vars: Record<string, string> }) =>
     request<{ say: string; ended: boolean; customer: string }>("POST", "/api/conversation/reply", body),
   conversationCoach: (body: { simulationId: string; scenarioId: string; transcript: Transcript; vars: Record<string, string> }) =>

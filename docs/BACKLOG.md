@@ -38,8 +38,8 @@ Nothing right now.
   it was graded with, which is usually what you want for fairness).
 - ⬜ **Hosting for other people**: a real database, HTTPS, company single sign-on
   (SAML/OIDC), limits on AI spending; turn on SCIM from the customer's identity provider.
-- ⬜ **Performance over time and by topic**: trends by week, filters by date range and
-  team, and a CSV download of the figures.
+- ⬜ **Performance by team and topic**: filter course performance to a leader's team or a
+  topic (dates, weekly trend and CSV are done).
 - ⬜ **Verify AI features with a real API key**: generation quality, box fine-tuning
   accuracy, and whether the AI proposes sensible alternative paths.
 
@@ -113,6 +113,8 @@ Nothing right now.
   (knows the goal, situation and criteria, not the customer's private details)
 - ✅ Clickable table rows: a table can select a row by a column; the row's values become
   variables, the table's rules run (e.g. open the order screen), and steps can require a row
+- ✅ Performance: date range (with last 30/90 days), week-by-week table, and CSV download of
+  the course list and of a course's figures (scenarios, weeks, steps, penalties, criteria)
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

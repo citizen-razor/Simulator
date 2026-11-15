@@ -6,12 +6,44 @@
  *                          points lost to penalties, trouble steps, where unfinished runs stopped
  */
 import { useEffect, useState } from "react";
-import type { ScenarioAnalysis, SimulationAnalysis, Stats } from "../../shared/analytics";
+import { overviewCsv, performanceCsv, type ScenarioAnalysis, type SimulationAnalysis, type Stats, type WeekStats } from "../../shared/analytics";
 import { api, type PerformanceRow } from "../api";
 
 const pct = (x: number | null) => (x === null ? "–" : `${Math.round(x * 100)}%`);
 const num = (x: number | null) => (x === null ? "–" : String(x));
 const dur = (sec: number | null) => (sec === null ? "–" : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`);
+
+type Range = { from?: string; to?: string };
+// The chosen dates carry over between the list and a course while the app is open.
+let lastRange: Range = {};
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+
+function DateRange({ range, onChange }: { range: Range; onChange: (r: Range) => void }) {
+  const set = (r: Range) => {
+    lastRange = r;
+    onChange(r);
+  };
+  const daysAgo = (n: number) => isoDay(new Date(Date.now() - n * 86_400_000));
+  return (
+    <div className="date-range">
+      <label>From <input type="date" value={range.from ?? ""} max={range.to} onChange={(e) => set({ ...range, from: e.target.value || undefined })} /></label>
+      <label>To <input type="date" value={range.to ?? ""} min={range.from} onChange={(e) => set({ ...range, to: e.target.value || undefined })} /></label>
+      <button className="btn sm ghost" onClick={() => set({ from: daysAgo(30) })}>Last 30 days</button>
+      <button className="btn sm ghost" onClick={() => set({ from: daysAgo(90) })}>Last 90 days</button>
+      {(range.from || range.to) && <button className="btn sm ghost" onClick={() => set({})}>All time</button>}
+    </div>
+  );
+}
+
+/** Save text as a file in the browser. */
+function download(name: string, text: string) {
+  const url = URL.createObjectURL(new Blob(["\ufeff" + text], { type: "text/csv;charset=utf-8" })); // BOM so Excel reads UTF-8
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const fileSafe = (s: string) => s.replace(/[^\w-]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "course";
+const rangeSuffix = (r: Range) => (r.from || r.to ? `-${r.from ?? "start"}-to-${r.to ?? isoDay(new Date())}` : "");
 
 export default function Performance({ simulationId }: { simulationId?: string }) {
   return simulationId ? <SimPerformance id={simulationId} /> : <Overview />;
@@ -20,13 +52,22 @@ export default function Performance({ simulationId }: { simulationId?: string })
 function Overview() {
   const [rows, setRows] = useState<PerformanceRow[] | null>(null);
   const [error, setError] = useState("");
+  const [range, setRange] = useState<Range>(lastRange);
   useEffect(() => {
-    api.performance().then(setRows).catch((e) => setError(e.message));
-  }, []);
+    setRows(null);
+    api.performance(range).then(setRows).catch((e) => setError(e.message));
+  }, [range]);
   return (
     <div className="page">
-      <h1>Performance</h1>
+      <div className="row">
+        <h1>Performance</h1>
+        <span className="spacer" />
+        {rows && rows.length > 0 && (
+          <button className="btn" onClick={() => download(`performance${rangeSuffix(range)}.csv`, overviewCsv(rows))}>⤓ Download CSV</button>
+        )}
+      </div>
       <p className="muted">How each course is doing across all learners. Figures are totals and averages; no one is named.</p>
+      <DateRange range={range} onChange={setRange} />
       {error && <div className="alert error">{error}</div>}
       {!rows ? (
         !error && <p className="muted">Loading…</p>
@@ -71,13 +112,14 @@ function SimPerformance({ id }: { id: string }) {
   const [guided, setGuided] = useState(true);
   const [data, setData] = useState<SimulationAnalysis | null>(null);
   const [error, setError] = useState("");
+  const [range, setRange] = useState<Range>(lastRange);
   useEffect(() => {
     api.get(id).then((s) => setTitle(s.title)).catch(() => undefined);
   }, [id]);
   useEffect(() => {
     setData(null);
-    api.simPerformance(id, guided).then(setData).catch((e) => setError(e.message));
-  }, [id, guided]);
+    api.simPerformance(id, guided, range).then(setData).catch((e) => setError(e.message));
+  }, [id, guided, range]);
 
   return (
     <div className="page">
@@ -85,9 +127,13 @@ function SimPerformance({ id }: { id: string }) {
       <div className="row">
         <h1>{title || "Performance"}</h1>
         <span className="spacer" />
+        {data && (
+          <button className="btn" onClick={() => download(`${fileSafe(title)}${rangeSuffix(range)}.csv`, performanceCsv(title || id, data))}>⤓ Download CSV</button>
+        )}
         <a className="btn" href={`#/edit/${id}`}>Edit</a>
       </div>
       <p className="muted">Totals and averages across all learners; no one is named.</p>
+      <DateRange range={range} onChange={setRange} />
       <label className="check-line">
         <input type="checkbox" checked={guided} onChange={(e) => setGuided(e.target.checked)} /> Include Guided runs
         <span className="muted small"> (untick to see Scenario mode only)</span>
@@ -98,11 +144,42 @@ function SimPerformance({ id }: { id: string }) {
       ) : (
         <>
           <StatTiles s={data.overall} />
+          {data.weekly.length > 1 && <WeeklyTable weeks={data.weekly} />}
           {data.scenarios.map((sc) => <ScenarioSection key={sc.scenarioId} sc={sc} />)}
           {!data.scenarios.length && <div className="empty"><p>This simulation has no scenarios.</p></div>}
         </>
       )}
     </div>
+  );
+}
+
+/** Week by week: attempts (with a bar for the busiest week), learners, average score and pass rate. */
+function WeeklyTable({ weeks }: { weeks: WeekStats[] }) {
+  const max = Math.max(1, ...weeks.map((w) => w.attempts));
+  const shown = weeks.slice(-26);
+  return (
+    <section className="panel weekly">
+      <h4>Week by week{weeks.length > shown.length ? " (last 26 weeks)" : ""}</h4>
+      <div className="table-scroll">
+        <table className="results-table">
+          <thead><tr><th>Week of</th><th className="bar-col">Attempts</th><th>Learners</th><th>Average score</th><th>Passed</th></tr></thead>
+          <tbody>
+            {shown.map((w) => (
+              <tr key={w.week}>
+                <td>{new Date(`${w.week}T12:00:00Z`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</td>
+                <td className="bar-col">
+                  <span className="meter" title={`${w.attempts} attempts`}><span style={{ width: `${(w.attempts / max) * 100}%` }} /></span>
+                  <span className="meter-label">{w.attempts}</span>
+                </td>
+                <td>{w.attempts ? w.learners : "–"}</td>
+                <td>{num(w.avgScore)}</td>
+                <td>{pct(w.passRate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
