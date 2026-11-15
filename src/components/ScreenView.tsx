@@ -8,6 +8,8 @@
  */
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
 import { fieldVar, interpolate, isVisible } from "../../shared/engine";
+import { snapRect } from "../../shared/layout";
+import { formatValue, parseTableVar } from "../../shared/personas";
 import type { Rect, Screen, SimElement } from "../../shared/schema";
 import { assetUrl } from "../api";
 
@@ -116,6 +118,27 @@ export function PlayScreen({ screen, vars, highlightId, focusHighlight, revealHo
         .map((el) => {
           const label = interpolate(el.label, vars);
           const cls = `sim-el kind-${el.kind} ${el.id === highlightId ? "highlight" : ""}`;
+          if (el.kind === "table") {
+            const table = parseTableVar(vars[el.tableSource ?? ""]);
+            return (
+              <div key={el.id} className={cls} style={rectStyle(el.rect)}>
+                <div className="sim-table-wrap">
+                  {table && table.rows.length ? (
+                    <table className="sim-table" aria-label={label}>
+                      <thead><tr>{table.columns.map((c) => <th key={c.key}>{c.label}</th>)}</tr></thead>
+                      <tbody>
+                        {table.rows.map((r, i) => (
+                          <tr key={i}>{table.columns.map((c) => <td key={c.key} className={c.type === "money" || c.type === "number" ? "num" : ""}>{formatValue(r[c.key] ?? "", c.type)}</td>)}</tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="sim-table-empty">{table ? "No records" : "—"}</div>
+                  )}
+                </div>
+              </div>
+            );
+          }
           if (el.kind === "text") {
             return (
               <div key={el.id} className={cls} style={rectStyle(el.rect)}>
@@ -164,6 +187,7 @@ const clampRect = (r: Rect): Rect => {
 export function EditScreen({ screen, selectedId, onSelect, onRectChange, onCreate }: EditScreenProps) {
   const frame = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
+  const [guides, setGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
 
   const pct = (e: { clientX: number; clientY: number }) => {
     const b = frame.current!.getBoundingClientRect();
@@ -188,13 +212,24 @@ export function EditScreen({ screen, selectedId, onSelect, onRectChange, onCreat
       const dx = p.x - drag.startX;
       const dy = p.y - drag.startY;
       const r = drag.orig;
-      onRectChange(drag.id, clampRect(drag.kind === "move" ? { ...r, x: r.x + dx, y: r.y + dy } : { ...r, w: r.w + dx, h: r.h + dy }));
+      const raw = clampRect(drag.kind === "move" ? { ...r, x: r.x + dx, y: r.y + dy } : { ...r, w: r.w + dx, h: r.h + dy });
+      if (e.altKey) {
+        // Hold Alt (Option on Mac) for free positioning.
+        setGuides({ x: [], y: [] });
+        onRectChange(drag.id, raw);
+      } else {
+        const others = screen.elements.filter((el) => el.id !== drag.id).map((el) => el.rect);
+        const snapped = snapRect(raw, others, drag.kind);
+        setGuides(snapped.guides);
+        onRectChange(drag.id, snapped.rect);
+      }
     }
   };
 
   const onUp = () => {
     if (drag?.kind === "draw" && drag.rect.w > 1 && drag.rect.h > 1) onCreate(clampRect(drag.rect));
     setDrag(null);
+    setGuides({ x: [], y: [] });
   };
 
   return (
@@ -237,6 +272,8 @@ export function EditScreen({ screen, selectedId, onSelect, onRectChange, onCreat
           </div>
         ))}
         {drag?.kind === "draw" && <div className="draw-rect" style={rectStyle(drag.rect)} />}
+        {guides.x.map((x) => <div key={`gx${x}`} className="guide guide-x" style={{ left: `${x}%` }} />)}
+        {guides.y.map((y) => <div key={`gy${y}`} className="guide guide-y" style={{ top: `${y}%` }} />)}
       </Frame>
     </div>
   );

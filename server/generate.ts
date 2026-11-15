@@ -18,6 +18,7 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import mammoth from "mammoth";
 import { z } from "zod";
 import { lintSimulation } from "../shared/engine";
+import { keyFromLabel, PersonaSchema, type Persona, type PersonaTemplate } from "../shared/personas";
 import {
   ActionTypes,
   ConditionOps,
@@ -60,6 +61,15 @@ const DraftScreen = z.object({
   imageIndex: z.number().int().nullable(),
   elements: z.array(DraftElement),
 });
+const DraftStep = z.object({
+  id: z.string(),
+  instruction: z.string(),
+  hint: z.string(),
+  elementId: z.string(),
+  alsoElementIds: z.array(z.string()),
+  expect: z.enum(ExpectOps),
+  value: z.string().nullable(),
+});
 const DraftScenario = z.object({
   id: z.string(),
   title: z.string(),
@@ -67,16 +77,8 @@ const DraftScenario = z.object({
   briefing: z.string(),
   startScreenId: z.string().nullable(),
   initialVars: z.array(z.object({ name: z.string(), value: z.string() })),
-  steps: z.array(
-    z.object({
-      id: z.string(),
-      instruction: z.string(),
-      hint: z.string(),
-      elementId: z.string(),
-      expect: z.enum(ExpectOps),
-      value: z.string().nullable(),
-    }),
-  ),
+  steps: z.array(DraftStep),
+  alternatePaths: z.array(z.object({ id: z.string(), name: z.string(), steps: z.array(DraftStep) })),
   successCriteria: z.array(DraftCondition),
 });
 export const DraftSimulation = z.object({
@@ -103,6 +105,7 @@ How the format works:
 - visibleIf hides an element until its conditions pass (e.g. an error banner, a success row).
 - variables: declare every variable used anywhere, with sensible initial values.
 - scenarios: 1-3 realistic training tasks a new user of this system must learn. Each step names exactly one elementId the trainee must use, in order. For fields, use expect "eq"/"contains" with value when the correct entry matters, otherwise "any". Give each step a short imperative instruction and a hint that teaches the reasoning. successCriteria are optional end-state checks. initialVars and startScreenId let a scenario begin mid-workflow.
+- Real tasks often have more than one correct way. If a step can be done equally well with another control (e.g. a toolbar button and a menu item), list those in alsoElementIds. If the task can be completed by a genuinely different sequence (e.g. a quick action instead of the full form), put the recommended sequence in steps and each other valid sequence in alternatePaths with a short name; include the shared opening steps in every path. Leave both empty when there is only one sensible way.
 - ids: short kebab-case, unique across the whole simulation (element ids must be unique across ALL screens).
 - Video frames arrive in order. Merge frames that show the same screen into one screen (use the clearest frame as its image) and use the transitions between frames to infer what was clicked and the workflow's steps.
 - Source code/HTML: derive real screens, field names, validation rules and navigation from it.
@@ -240,6 +243,16 @@ export function draftToSimulation(draft: Draft, id: string, images: StoredImage[
   for (const s of draft.screens) for (const e of s.elements) elementMap.set(e.id, unique(e.id, "el"));
   const screenRef = (r: string | null) => (r ? screenMap.get(r) ?? slug(r, "screen") : undefined);
   const cond = (c: z.infer<typeof DraftCondition>) => ({ var: c.var, op: c.op, value: nn(c.value) });
+  const elementRef = (id: string) => elementMap.get(id) ?? id;
+  const step = (st: z.infer<typeof DraftStep>, i: number) => ({
+    id: slug(st.id, `step-${i + 1}`),
+    instruction: st.instruction,
+    hint: st.hint || undefined,
+    elementId: elementRef(st.elementId),
+    alsoElementIds: st.alsoElementIds.length ? st.alsoElementIds.map(elementRef) : undefined,
+    expect: st.expect,
+    value: nn(st.value),
+  });
 
   return SimulationSchema.parse({
     id,
@@ -288,14 +301,10 @@ export function draftToSimulation(draft: Draft, id: string, images: StoredImage[
       briefing: sc.briefing || undefined,
       startScreenId: screenRef(sc.startScreenId),
       initialVars: sc.initialVars,
-      steps: sc.steps.map((st, i) => ({
-        id: slug(st.id, `step-${i + 1}`),
-        instruction: st.instruction,
-        hint: st.hint || undefined,
-        elementId: elementMap.get(st.elementId) ?? st.elementId,
-        expect: st.expect,
-        value: nn(st.value),
-      })),
+      steps: sc.steps.map(step),
+      alternatePaths: sc.alternatePaths
+        .filter((p) => p.steps.length > 0)
+        .map((p, i) => ({ id: slug(p.id, `path-${i + 2}`).replace(/^main$/, `path-${i + 2}`), name: p.name || `Alternative ${i + 1}`, steps: p.steps.map(step) })),
       successCriteria: sc.successCriteria.map(cond),
     })),
   });
@@ -311,6 +320,15 @@ export function simulationToDraft(sim: Simulation, images: StoredImage[]): Draft
     var: c.var,
     op: c.op,
     value: c.value ?? null,
+  });
+  const draftStep = (st: Simulation["scenarios"][0]["steps"][0]) => ({
+    id: st.id,
+    instruction: st.instruction,
+    hint: st.hint ?? "",
+    elementId: st.elementId,
+    alsoElementIds: st.alsoElementIds ?? [],
+    expect: st.expect,
+    value: st.value ?? null,
   });
   return {
     title: sim.title,
@@ -350,14 +368,8 @@ export function simulationToDraft(sim: Simulation, images: StoredImage[]): Draft
       briefing: sc.briefing ?? "",
       startScreenId: sc.startScreenId ?? null,
       initialVars: sc.initialVars,
-      steps: sc.steps.map((st) => ({
-        id: st.id,
-        instruction: st.instruction,
-        hint: st.hint ?? "",
-        elementId: st.elementId,
-        expect: st.expect,
-        value: st.value ?? null,
-      })),
+      steps: sc.steps.map(draftStep),
+      alternatePaths: sc.alternatePaths.map((p) => ({ id: p.id, name: p.name, steps: p.steps.map(draftStep) })),
       successCriteria: sc.successCriteria.map(cond),
     })),
     authorNotes: "",
@@ -413,4 +425,164 @@ export async function refineSimulation(
   const updated = draftToSimulation(draft, sim.id, images);
   updated.createdAt = sim.createdAt;
   return { simulation: updated, notes: draft.authorNotes, issues: lintSimulation(updated) };
+}
+
+// ------------------------------------------------------------ box alignment pass
+// Claude places boxes on screenshots only approximately on the first pass. This
+// second pass shows it the clean screenshot plus a copy with a percentage grid and
+// the current boxes drawn and numbered, and asks for corrected boxes. Seeing its
+// own boxes against a grid makes the correction far more accurate than guessing
+// coordinates blind. The browser draws the marked-up image (see src/lib/align.ts).
+
+const AlignResult = z.object({
+  elements: z.array(
+    z.object({ n: z.number().int(), found: z.boolean(), x: z.number(), y: z.number(), w: z.number(), h: z.number() }),
+  ),
+});
+
+const AlignImage = z.object({
+  mediaType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]),
+  data: z.string().max(15_000_000),
+});
+
+export const AlignInputSchema = z.object({
+  screenName: z.string().max(300),
+  elements: z
+    .array(z.object({ n: z.number().int().positive(), kind: z.enum(ElementKinds), label: z.string().max(500) }))
+    .min(1)
+    .max(150),
+  clean: AlignImage,
+  annotated: AlignImage,
+});
+export type AlignInput = z.infer<typeof AlignInputSchema>;
+
+const ALIGN_PROMPT = `You correct the positions of interactive regions on a software screenshot used in a training simulation.
+
+You get two images of the same screen:
+- Image 1: the clean screenshot.
+- Image 2: the same screenshot with a magenta percentage grid (lines every 10%, labelled along the top and left edges, thin lines every 5%) and the CURRENT boxes drawn as numbered coloured rectangles. The current boxes are rough guesses and may be offset, too large, too small, or on the wrong control.
+
+For every numbered element, find the control it describes in Image 1 and return a box that tightly covers it, as percentages of the image's width (x, w) and height (y, h), where x,y is the top-left corner. Use the grid in Image 2 to measure each edge precisely; estimate to the nearest 0.5%.
+- input / textarea / select: cover the entry area itself, not its label.
+- button / link: cover the button or link text.
+- hotspot: cover the whole clickable region it describes (e.g. an entire table row, card, tab or icon).
+- checkbox: cover the box and its label text.
+- text: cover the area where that text or value is displayed.
+If two elements describe different controls, their boxes should not overlap. If the control is not visible in the screenshot at all, set found to false and return the current box unchanged. Return one entry per number.`;
+
+export async function alignElements(input: AlignInput) {
+  const list = input.elements.map((e) => `${e.n}. [${e.kind}] ${e.label}`).join("\n");
+  const message = await getClient().beta.messages.parse({
+    model: MODEL,
+    max_tokens: 16000,
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    output_config: { effort: "high", format: betaZodOutputFormat(AlignResult) },
+    system: ALIGN_PROMPT,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Image 1 (clean):" },
+          { type: "image", source: { type: "base64", media_type: input.clean.mediaType, data: input.clean.data } },
+          { type: "text", text: "Image 2 (grid and current boxes):" },
+          { type: "image", source: { type: "base64", media_type: input.annotated.mediaType, data: input.annotated.data } },
+          { type: "text", text: `Screen: ${input.screenName}\nElements:\n${list}` },
+        ],
+      },
+    ],
+  });
+  if (message.stop_reason === "refusal") throw new Error("The model declined to align this screen.");
+  if (message.stop_reason === "max_tokens") throw new Error("Too many elements to align in one pass.");
+  if (!message.parsed_output) throw new Error("The model's reply could not be read.");
+  return message.parsed_output.elements;
+}
+
+// ------------------------------------------------------------------ persona drafting
+
+const DraftPersonas = z.object({
+  personas: z.array(
+    z.object({
+      name: z.string(),
+      summary: z.string(),
+      backstory: z.string(),
+      values: z.array(z.object({ key: z.string(), value: z.string() })),
+      extra: z.array(z.object({ label: z.string(), value: z.string() })),
+      tables: z.array(z.object({ key: z.string(), rows: z.array(z.object({ cells: z.array(z.object({ key: z.string(), value: z.string() })) })) })),
+    }),
+  ),
+});
+
+const PERSONA_PROMPT = `You write realistic but entirely FICTIONAL customer personas for training simulations (support desks, banks, telecoms, retail, and so on). Trainees will look these people up in a simulated system and handle their requests, so every detail must be internally consistent.
+
+Rules:
+- Invent everything. Never use real people, real companies' customer data, or real account numbers. Use example.com / example.org email addresses, phone numbers in the 555-01xx range, and clearly made-up account, card and reference numbers (cards: only the last 4 digits).
+- Vary names, ages, backgrounds, temperaments and circumstances, unless the request says otherwise.
+- summary: one line a trainer can scan (who they are, what they want, their mood).
+- backstory: 80-150 words: their situation, what happened, what they want now, how they tend to communicate, and any detail a trainee could discover in their records.
+- values: give a value for EVERY template field, using the field's key. For "choice" fields use one of the listed options exactly. Money as a plain number (e.g. 212.40). Dates as YYYY-MM-DD, close to today's date given below.
+- tables: for each template table, 3-8 rows, most recent first, using the column keys. Make the records back up the backstory (e.g. the disputed charge appears in the bills).
+- extra: only details that matter to this persona and have no template field (may be empty).`;
+
+export interface PersonaDraftInput {
+  description: string;
+  count: number;
+  template: PersonaTemplate | null;
+}
+
+export async function draftPersonas(input: PersonaDraftInput, makeId: (prefix: string) => string): Promise<Persona[]> {
+  const t = input.template;
+  const templateText = t
+    ? `Template "${t.name}"${t.description ? ` (${t.description})` : ""}.\nFields:\n` +
+      t.fields.map((f) => `- ${f.key} (${f.label}; ${f.type}${f.options?.length ? `: one of ${f.options.join(" | ")}` : ""})`).join("\n") +
+      (t.tables.length
+        ? `\nTables:\n` + t.tables.map((x) => `- ${x.key} (${x.label}): columns ${x.columns.map((c) => `${c.key} (${c.label}; ${c.type})`).join(", ")}`).join("\n")
+        : "")
+    : "No template: put all account details in extra, and leave values and tables empty.";
+  const stream = getClient().beta.messages.stream({
+    model: MODEL,
+    max_tokens: 32000,
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    output_config: { effort: "medium", format: betaZodOutputFormat(DraftPersonas) },
+    system: PERSONA_PROMPT,
+    messages: [
+      {
+        role: "user",
+        content: `Today's date: ${new Date().toISOString().slice(0, 10)}\n${templateText}\n\nWrite ${input.count} persona${input.count === 1 ? "" : "s"}:\n<request>\n${input.description}\n</request>`,
+      },
+    ],
+  });
+  const message = await stream.finalMessage();
+  if (message.stop_reason === "refusal") throw new Error("The model declined this request.");
+  if (message.stop_reason === "max_tokens") throw new Error("Too many personas to write at once. Ask for fewer.");
+  if (!message.parsed_output) throw new Error("The model's reply could not be read.");
+
+  return personasFromDraft(message.parsed_output, t, makeId).slice(0, input.count);
+}
+
+/** Turn Claude's draft into valid personas: keep only the template's fields and tables; extra fields get keys. */
+export function personasFromDraft(draft: z.infer<typeof DraftPersonas>, t: PersonaTemplate | null, makeId: (prefix: string) => string): Persona[] {
+  const fieldKeys = new Set(t?.fields.map((f) => f.key) ?? []);
+  return draft.personas.map((d) =>
+    PersonaSchema.parse({
+      id: makeId("persona"),
+      name: d.name.slice(0, 100) || "Unnamed",
+      summary: d.summary.slice(0, 300),
+      backstory: d.backstory.slice(0, 5000),
+      templateId: t?.id ?? null,
+      values: Object.fromEntries(d.values.filter((v) => fieldKeys.has(v.key)).map((v) => [v.key, v.value.slice(0, 2000)])),
+      extra: d.extra
+        .filter((x) => x.label.trim())
+        .slice(0, 40)
+        .map((x) => ({ key: keyFromLabel(x.label), label: x.label.slice(0, 60), value: x.value.slice(0, 2000) }))
+        .filter((x, i, all) => !fieldKeys.has(x.key) && all.findIndex((y) => y.key === x.key) === i),
+      tables: Object.fromEntries(
+        (t?.tables ?? []).map((tbl) => {
+          const rows = d.tables.find((x) => x.key === tbl.key)?.rows ?? [];
+          return [tbl.key, rows.slice(0, 50).map((r) => Object.fromEntries(tbl.columns.map((c) => [c.key, (r.cells.find((x) => x.key === c.key)?.value ?? "").slice(0, 500)])))];
+        }),
+      ),
+    }),
+  );
 }

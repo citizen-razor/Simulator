@@ -15,6 +15,7 @@
  *       └─ steps[]     the expected interactions, in order
  */
 import { z } from "zod";
+import { RandomVarSchema } from "./random";
 
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const id = z.string().regex(ID_PATTERN, "ids may only contain letters, numbers, _ and -");
@@ -63,6 +64,7 @@ export const ElementKinds = [
   "select",
   "checkbox",
   "text",
+  "table",
 ] as const;
 export type ElementKind = (typeof ElementKinds)[number];
 /** Kinds whose value the trainee edits (stored in a variable). */
@@ -80,6 +82,8 @@ export const ElementSchema = z.object({
   bindVar: z.string().optional(),
   /** Only shown when all conditions pass. */
   visibleIf: z.array(ConditionSchema).optional(),
+  /** table: the variable holding the table, e.g. "customer.orders" (from a persona). */
+  tableSource: z.string().optional(),
   rules: z.array(RuleSchema).default([]),
 });
 
@@ -107,10 +111,35 @@ export const StepSchema = z.object({
   hint: z.string().optional(),
   /** The element the trainee must use for this step. */
   elementId: z.string(),
+  /** Other elements that also count for this step (e.g. a toolbar button and a menu item that do the same thing). */
+  alsoElementIds: z.array(z.string()).optional(),
   /** For fields: what the entered value must be. "any" = anything non-empty. */
   expect: z.enum(ExpectOps).default("any"),
   value: z.string().optional(),
 });
+
+/** Another valid way to complete a scenario: its own ordered list of steps. */
+export const PathSchema = z.object({
+  id,
+  name: z.string(),
+  steps: z.array(StepSchema).default([]),
+});
+
+export const MAIN_PATH_ID = "main";
+
+const ROLE = z.string().regex(/^[a-z][a-z0-9_]{0,29}$/, "Roles are lower-case letters, numbers and _");
+/**
+ * A persona is like a real customer record: one source of truth. Simulations and scenarios
+ * choose WHICH persona plays a role; they never change the persona's details. (Older files
+ * may carry a "details" field from an earlier design; it is dropped when they load.)
+ */
+export const PersonaLinkSchema = z.object({ role: ROLE, personaId: z.string() });
+export const PersonaOverrideSchema = z
+  .object({ role: ROLE, personaId: z.string().nullable().optional() })
+  // Older files: an override without a persona only carried detail changes; it now means "same as the simulation".
+  .transform((o) => ({ role: o.role, personaId: o.personaId === undefined ? undefined : o.personaId }));
+export type PersonaLink = z.infer<typeof PersonaLinkSchema>;
+export type PersonaOverride = z.infer<typeof PersonaOverrideSchema>;
 
 export const ScenarioSchema = z.object({
   id,
@@ -120,10 +149,30 @@ export const ScenarioSchema = z.object({
   startScreenId: z.string().optional(),
   /** Overrides for variable initial values in this scenario. */
   initialVars: z.array(z.object({ name: z.string(), value: z.string() })).default([]),
+  /** The main (recommended) path. Guided mode coaches this one unless the trainee takes another valid path. */
   steps: z.array(StepSchema).default([]),
+  /** Other ways to complete the scenario. Completing ANY path (plus successCriteria) completes the scenario. */
+  alternatePaths: z.array(PathSchema).default([]),
   /** Optional extra checks on state required to finish (e.g. status = "Resolved"). */
   successCriteria: z.array(ConditionSchema).default([]),
+  /** Use a different grading scheme for this scenario (null = the simulation's scheme). */
+  gradingSchemeId: z.string().nullable().default(null),
+  /** Use fresh random values (Simulation.randomData) on each run. Off = always the initial values. */
+  randomize: z.boolean().default(true),
+  /**
+   * Personas for this scenario, by role. personaId: a persona to use (also for roles only this
+   * scenario has); null = no persona for that role here; left out = the simulation's persona.
+   */
+  personaOverrides: z.array(PersonaOverrideSchema).default([]),
 });
+
+/** Per-simulation targets for a grading scheme's screen/state checks (see shared/library.ts). */
+export const BindingSchema = z.object({
+  itemId: z.string(),
+  screenId: z.string().optional(),
+  conditions: z.array(ConditionSchema).optional(),
+});
+export type Binding = z.infer<typeof BindingSchema>;
 
 export const SimulationSchema = z.object({
   id,
@@ -133,6 +182,24 @@ export const SimulationSchema = z.object({
   variables: z.array(VariableSchema).default([]),
   screens: z.array(ScreenSchema).min(1),
   scenarios: z.array(ScenarioSchema).default([]),
+  /** Tag ids from the topic/tag library. */
+  tagIds: z.array(z.string()).default([]),
+  /** Personas from the persona library, by role (e.g. "customer"). Their details become {{role.field}} variables. */
+  personas: z.array(PersonaLinkSchema).default([]),
+  /** Random value generators for variables, applied at the start of every run (see shared/random.ts). */
+  randomData: z.array(RandomVarSchema).default([]),
+  /**
+   * Grading scheme from the grading library (null = Standard), plus per-simulation check targets.
+   * trainerMarking: count the scheme's trainer-marked criteria. Off (the default) skips them, so
+   * every result is final at once instead of waiting for someone to mark it.
+   */
+  grading: z
+    .object({
+      schemeId: z.string().nullable().default(null),
+      bindings: z.array(BindingSchema).default([]),
+      trainerMarking: z.boolean().default(false),
+    })
+    .default({ schemeId: null, bindings: [], trainerMarking: false }),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
 });
@@ -146,12 +213,29 @@ export type Screen = z.infer<typeof ScreenSchema>;
 export type Variable = z.infer<typeof VariableSchema>;
 export type Step = z.infer<typeof StepSchema>;
 export type Scenario = z.infer<typeof ScenarioSchema>;
+export type Path = z.infer<typeof PathSchema>;
+
+/** All the scenario's paths, main path first. */
+export function scenarioPaths(sc: Scenario): Path[] {
+  return [{ id: MAIN_PATH_ID, name: "Main path", steps: sc.steps }, ...sc.alternatePaths];
+}
+
+/** Elements that count for a step. */
+export const stepTargets = (st: Step): string[] => [st.elementId, ...(st.alsoElementIds ?? [])];
 export type Simulation = z.infer<typeof SimulationSchema>;
 
 /** A finished Scenario/Guided run, saved for the Results page. */
+export const PenaltyEventSchema = z.object({
+  kind: z.enum(["error", "hint"]),
+  stepNo: z.number().int().min(1),
+  step: z.string(),
+});
+export type PenaltyEvent = z.infer<typeof PenaltyEventSchema>;
+
 export const AttemptSchema = z.object({
   id,
-  /** Who made the attempt (entered in the Player; empty for attempts saved before names existed). */
+  /** Who made the attempt: their account, and their name at the time (older attempts have only a typed name). */
+  userId: z.string().optional(),
   trainee: z.string().trim().max(100).default(""),
   simulationId: z.string(),
   simulationTitle: z.string(),
@@ -167,7 +251,51 @@ export const AttemptSchema = z.object({
   durationSec: z.number(),
   stepsCompleted: z.number(),
   stepsTotal: z.number(),
+  /** Which path the trainee followed ("Main path" or an alternative's name). */
+  pathName: z.string().default(""),
   mistakes: z.array(z.string()).default([]),
+  /** Step instruction for each error or hint, used to find where a trainee struggles. */
+  troubleSteps: z.array(z.string()).default([]),
+  /** Each error and hint in order, with the step (1-based, on the path taken) it happened on. */
+  penalties: z.array(PenaltyEventSchema).default([]),
+  /** Grading details (absent on attempts saved before the grading library existed). */
+  grading: z
+    .object({
+      schemeId: z.string(),
+      schemeName: z.string(),
+      passScore: z.number(),
+      masteryScore: z.number(),
+      pointsScore: z.number(),
+      rubricWeight: z.number(),
+      rubric: z.array(
+        z.object({
+          id: z.string(),
+          label: z.string(),
+          weight: z.number(),
+          manual: z.boolean(),
+          /** null = waiting for a trainer to mark it. */
+          met: z.boolean().nullable(),
+        }),
+      ),
+      overtimeSec: z.number().default(0),
+      /** Points lost to each penalty (absent on attempts saved before this was recorded). */
+      pointsLost: z
+        .object({
+          errors: z.number(),
+          hints: z.number(),
+          overtime: z.number(),
+          /** The scheme's penalty per error and per hint when this was graded. */
+          perError: z.number().optional(),
+          perHint: z.number().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  /** Random values this run used, and the seed that produced them. */
+  data: z.record(z.string(), z.string()).optional(),
+  seed: z.number().optional(),
+  /** null while manual rubric items are unmarked (or for older attempts). */
+  passed: z.boolean().nullable().default(null),
   finishedAt: z.string(),
 });
 export type Attempt = z.infer<typeof AttemptSchema>;

@@ -18,6 +18,7 @@ describe("AI draft conversion", () => {
     const back = draftToSimulation(draft, sim.id, []);
     expect(back.screens.map((s) => s.id)).toEqual(sim.screens.map((s) => s.id));
     expect(back.scenarios[0].steps).toEqual(sim.scenarios[0].steps);
+    expect(back.scenarios[0].alternatePaths).toEqual(sim.scenarios[0].alternatePaths);
     expect(back.screens[2].elements.find((e) => e.id === "tk-save")!.rules).toEqual(
       sim.screens[2].elements.find((e) => e.id === "tk-save")!.rules,
     );

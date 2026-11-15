@@ -6,6 +6,8 @@ import {
   getScenario,
   getScreen,
   interact,
+  interpolate,
+  leadingPath,
   newId,
   scoreSession,
   switchMode,
@@ -15,11 +17,17 @@ import {
   type Mode,
   type SessionState,
 } from "../../shared/engine";
-import type { Simulation, SimElement, Step } from "../../shared/schema";
+import { MAIN_PATH_ID, scenarioPaths, type Simulation, type SimElement, type Step } from "../../shared/schema";
 import { api } from "../api";
 import { PlayScreen } from "../components/ScreenView";
 import { navigate } from "../router";
-import { loadTrainee, saveTrainee } from "../lib/trainee";
+import { activeRubric, evaluateObjectives, gradeSession, resolveScheme, timeLeft, type GradeResult } from "../../shared/grading";
+import { STANDARD_SCHEME, type GradingScheme } from "../../shared/library";
+import { sessionPersonaVariables, type PersonaLibrary } from "../../shared/personas";
+import { meetsRequirement, REQUIREMENT_TEXT, type Assignment } from "../../shared/assignments";
+import { useAuth } from "../lib/auth";
+import { PointsFlow, stepTitles } from "../components/PointsFlow";
+import { breakdown } from "../../shared/breakdown";
 
 const MODES: { id: Mode; label: string; blurb: string }[] = [
   { id: "open", label: "Open world", blurb: "Explore freely. Nothing is scored." },
@@ -47,6 +55,7 @@ function recordedStep(el: SimElement, value?: string): Step {
 
 export default function Player({ id, query }: { id: string; query: URLSearchParams }) {
   const recordInto = query.get("record");
+  const recordPath = query.get("path") || MAIN_PATH_ID;
   const [sim, setSim] = useState<Simulation | null>(null);
   const [error, setError] = useState("");
   const [mode, setMode] = useState<Mode>(recordInto ? "open" : ((query.get("mode") as Mode) || "open"));
@@ -55,22 +64,31 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   const [showHotspots, setShowHotspots] = useState(false);
   const [showState, setShowState] = useState(false);
   const [hint, setHint] = useState("");
-  const [summary, setSummary] = useState<null | { completed: boolean; score: number; durationSec: number }>(null);
+  const [summary, setSummary] = useState<null | { completed: boolean; grade: GradeResult; durationSec: number }>(null);
+  const [schemes, setSchemes] = useState<GradingScheme[]>([STANDARD_SCHEME]);
+  const [assignment, setAssignment] = useState<Assignment | null>(null);
+  const [personaLib, setPersonaLib] = useState<PersonaLibrary>({ templates: [], personas: [] });
+  /** After a run launched from an assignment: did it satisfy it? (null = awaiting marking) */
+  const [assignmentMet, setAssignmentMet] = useState<boolean | null | undefined>(undefined);
   const [recording, setRecording] = useState<Step[]>([]);
-  const [trainee, setTrainee] = useState(loadTrainee);
-  const [nameDraft, setNameDraft] = useState("");
-  const [askName, setAskName] = useState(false);
+  const auth = useAuth();
+  // Attempts are saved under the signed-in account (the server sets this; it's sent for display).
+  const trainee = auth.user?.name ?? "";
   const [, tick] = useState(0);
   const toastId = useRef(0);
 
   useEffect(() => {
-    api
-      .get(id)
-      .then((s) => {
+    api.grading().then((g) => setSchemes(g.schemes)).catch(() => undefined);
+    const asgId = query.get("assignment");
+    if (asgId) api.assignment(asgId).then(setAssignment).catch(() => undefined);
+    // Personas fill the run's variables, so they load before the first session starts.
+    Promise.all([api.get(id), api.personas().catch(() => ({ templates: [], personas: [] }) as PersonaLibrary)])
+      .then(([s, lib]) => {
         setSim(s);
+        setPersonaLib(lib);
         const want = recordInto ?? query.get("scenario");
         const scenarioId = getScenario(s, want)?.id ?? ((query.get("mode") ?? "open") !== "open" ? s.scenarios[0]?.id ?? null : null);
-        setSession(createSession(s, scenarioId));
+        setSession(createSession(s, scenarioId, Date.now(), undefined, sessionPersonaVariables(s, scenarioId, lib)));
         if (!scenarioId && !recordInto) setMode("open");
       })
       .catch((e) => setError(e.message));
@@ -97,13 +115,21 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   const screen = getScreen(sim, session.screenId) ?? sim.screens[0];
   const step = mode === "open" ? null : currentStep(sim, session);
   const stepTarget = step ? findElement(sim, step.elementId) : null;
-  const score = scoreSession(sim, session);
+  const scheme = resolveScheme(sim, session.scenarioId, schemes);
+  const score = scoreSession(sim, session, Date.now(), scheme.points);
+  const clock = timeLeft(session, scheme);
+  const objectives = mode === "open" && !recordInto ? evaluateObjectives(sim, session, scheme) : [];
+
+  /** A fresh run: new random values, this scenario's personas. */
+  const newRun = (scenarioId: string | null) => createSession(sim, scenarioId, Date.now(), undefined, sessionPersonaVariables(sim, scenarioId, personaLib));
 
   const finish = (s: SessionState, completed: boolean, m: Mode) => {
     const sc = getScenario(sim, s.scenarioId);
-    const result = scoreSession(sim, s);
-    setSummary({ completed, score: result.score, durationSec: result.durationSec });
+    const result = scoreSession(sim, s, Date.now(), scheme.points);
+    const grade = gradeSession(sim, s, scheme);
+    setSummary({ completed, grade, durationSec: result.durationSec });
     if (!sc || m === "open" || recordInto) return;
+    const { score: finalScore, passed, pendingManual: _pending, ...grading } = grade;
     api
       .addAttempt({
         trainee,
@@ -114,20 +140,30 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
         mode: m === "guided" ? "guided" : "scenario",
         assisted: s.assisted || m === "guided",
         completed,
-        score: result.score,
+        score: finalScore,
+        passed,
+        grading,
         errors: s.errors,
         hintsUsed: s.hintsUsed,
         durationSec: result.durationSec,
         stepsCompleted: result.stepsCompleted,
         stepsTotal: result.stepsTotal,
+        pathName: sc.alternatePaths.length ? result.pathName : "",
         mistakes: s.mistakes,
+        troubleSteps: s.troubleSteps,
+        penalties: s.penalties,
+        data: Object.keys(s.generated).length ? s.generated : undefined,
+        seed: Object.keys(s.generated).length ? s.seed : undefined,
         finishedAt: new Date().toISOString(),
+      })
+      .then((saved) => {
+        if (assignment && assignment.scenarioId === sc.id) setAssignmentMet(meetsRequirement(saved, assignment.requirement));
       })
       .catch((e) => pushToasts([{ tone: "error", text: `Couldn't save result: ${e.message}` }]));
   };
 
   const handle = (ev: InteractionEvent) => {
-    if (summary || needName) return;
+    if (summary) return;
     if (recordInto) {
       const found = findElement(sim, ev.elementId);
       if (found) setRecording((r) => [...r, recordedStep(found.element, ev.type === "commit" ? ev.value : undefined)]);
@@ -141,21 +177,22 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
 
   const changeMode = (m: Mode) => {
     let s = session;
-    if (m !== "open" && !s.scenarioId && sim.scenarios.length) s = createSession(sim, sim.scenarios[0].id);
+    if (m !== "open" && !s.scenarioId && sim.scenarios.length) s = newRun(sim.scenarios[0].id);
     setSession(switchMode(s, m));
     setMode(m);
     setHint("");
   };
 
   const changeScenario = (scenarioId: string | null) => {
-    setSession(createSession(sim, scenarioId));
+    setSession(newRun(scenarioId));
     setSummary(null);
     setHint("");
     if (!scenarioId) setMode("open");
   };
 
   const restart = (m: Mode = mode) => {
-    setSession(createSession(sim, session.scenarioId));
+    setAssignmentMet(undefined);
+    setSession(newRun(session.scenarioId));
     setMode(m);
     setSummary(null);
     setHint("");
@@ -171,23 +208,13 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
     const fresh = await api.get(sim.id);
     const target = getScenario(fresh, recordInto);
     if (!target) return;
-    target.steps.push(...recording);
+    const path = target.alternatePaths.find((p) => p.id === recordPath);
+    (path ? path.steps : target.steps).push(...recording);
     await api.save(fresh);
-    navigate(`/edit/${sim.id}?scenario=${target.id}`);
+    navigate(`/edit/${sim.id}?scenario=${target.id}${path ? `&path=${path.id}` : ""}`);
   };
 
   const elapsed = Math.round((Date.now() - session.startedAt) / 1000);
-  // Scored runs need a name so results can be told apart. Open world and recording don't.
-  const needName = askName || (!trainee && mode !== "open" && !!scenario && !recordInto);
-  const confirmName = () => {
-    const name = nameDraft.trim();
-    if (!name) return;
-    saveTrainee(name);
-    setTrainee(name);
-    setAskName(false);
-    // The clock starts once the trainee is ready, not while they type their name.
-    if (!session.finished && session.stepIndex === 0 && session.errors === 0) setSession({ ...session, startedAt: Date.now() });
-  };
   const judged = mode !== "open" && !!scenario;
   const noScenarios = sim.scenarios.length === 0;
 
@@ -224,13 +251,8 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
               ))}
             </select>
           )}
-          {!recordInto && (
-            <button className="btn sm ghost" title="Change trainee" onClick={() => { setNameDraft(trainee); setAskName(true); }}>
-              👤 {trainee || "Set name"}
-            </button>
-          )}
           <button className="btn sm" onClick={() => restart()}>↺ Restart</button>
-          <a className="btn sm ghost" href={`#/edit/${sim.id}`}>Edit</a>
+          {auth.isBuilder && <a className="btn sm ghost" href={`#/edit/${sim.id}`}>Edit</a>}
         </div>
       </div>
 
@@ -239,7 +261,17 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
           {mode === "guided" && stepTarget && stepTarget.screen.id !== screen.id && (
             <div className="alert info stage-banner">
               The next step is on the <b>{stepTarget.screen.name}</b> screen.
-              <button className="btn sm" onClick={() => setSession({ ...session, screenId: stepTarget.screen.id, history: [...session.history, stepTarget.screen.id] })}>
+              <button
+                className="btn sm"
+                onClick={() =>
+                  setSession({
+                    ...session,
+                    screenId: stepTarget.screen.id,
+                    history: [...session.history, stepTarget.screen.id],
+                    visited: session.visited.includes(stepTarget.screen.id) ? session.visited : [...session.visited, stepTarget.screen.id],
+                  })
+                }
+              >
                 Take me there
               </button>
             </div>
@@ -254,19 +286,6 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
               onActivate={(el) => handle({ type: "activate", elementId: el.id })}
               onCommit={(el, value) => handle({ type: "commit", elementId: el.id, value })}
             />
-            {needName && (
-              <div className="name-gate">
-                <form className="panel" onSubmit={(e) => { e.preventDefault(); confirmName(); }}>
-                  <h3>Who's training?</h3>
-                  <p className="muted small">Your name is saved with your results so you can track progress. It's remembered on this device.</p>
-                  <input autoFocus value={nameDraft} maxLength={100} placeholder="Your name" onChange={(e) => setNameDraft(e.target.value)} />
-                  <div className="row">
-                    <button className="btn primary" type="submit" disabled={!nameDraft.trim()}>Start</button>
-                    {askName && trainee && <button className="btn ghost" type="button" onClick={() => setAskName(false)}>Cancel</button>}
-                  </div>
-                </form>
-              </div>
-            )}
             <div className="toasts" aria-live="polite">
               {toasts.map((t) => (
                 <div key={t.id} className={`toast ${t.tone}`}>{t.text}</div>
@@ -278,7 +297,10 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
         <aside className="side">
           {recordInto ? (
             <RecordingPanel
-              scenarioTitle={getScenario(sim, recordInto)?.title ?? recordInto}
+              scenarioTitle={
+                (getScenario(sim, recordInto)?.title ?? recordInto) +
+                (recordPath !== MAIN_PATH_ID ? ` (${getScenario(sim, recordInto)?.alternatePaths.find((p) => p.id === recordPath)?.name ?? recordPath})` : "")
+              }
               steps={recording}
               onRemove={(i) => setRecording((r) => r.filter((_, j) => j !== i))}
               onSave={saveRecording}
@@ -290,19 +312,32 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
               {judged && scenario && (
                 <section className="panel">
                   <h3>{scenario.title}</h3>
-                  <p><b>Goal:</b> {scenario.goal}</p>
-                  {scenario.briefing && <p className="muted">{scenario.briefing}</p>}
+                  <p><b>Goal:</b> {interpolate(scenario.goal, session.vars)}</p>
+                  {scenario.briefing && <p className="muted">{interpolate(scenario.briefing, session.vars)}</p>}
                   {session.assisted && mode === "scenario" && <p className="badge">Assisted run</p>}
+                  {assignment && assignment.scenarioId === scenario.id && (
+                    <p className="assignment-note small">
+                      📋 <b>Assigned to you:</b> {REQUIREMENT_TEXT[assignment.requirement].toLowerCase()}
+                      {assignment.dueDate && ` by ${new Date(`${assignment.dueDate}T12:00:00`).toLocaleDateString()}`}.
+                      {assignment.requirement !== "complete" && mode === "guided" && " Guided runs are practice; switch to Scenario mode to count."}
+                    </p>
+                  )}
+                  <GradingInfo scheme={scheme} rubric={activeRubric(sim, scheme)} />
                 </section>
               )}
 
               {mode === "guided" && scenario && (
                 <section className="panel">
+                  {scenario.alternatePaths.length > 0 && (
+                    <p className="muted small path-note">
+                      Following: <b>{leadingPath(sim, session)!.name}</b>. This task has {scenarioPaths(scenario).length} valid ways; any of them counts.
+                    </p>
+                  )}
                   <ol className="steps">
-                    {scenario.steps.map((st, i) => (
+                    {leadingPath(sim, session)!.steps.map((st, i) => (
                       <li key={st.id} className={i < session.stepIndex ? "done" : i === session.stepIndex ? "current" : ""}>
-                        {st.instruction}
-                        {i === session.stepIndex && st.hint && <div className="hint">💡 {st.hint}</div>}
+                        {interpolate(st.instruction, session.vars)}
+                        {i === session.stepIndex && st.hint && <div className="hint">💡 {interpolate(st.hint, session.vars)}</div>}
                       </li>
                     ))}
                   </ol>
@@ -313,13 +348,19 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                 <section className="panel stats">
                   <div><span className="muted small">Progress</span><b>{score.stepsCompleted}/{score.stepsTotal}</b></div>
                   <div><span className="muted small">Errors</span><b>{session.errors}</b></div>
-                  <div><span className="muted small">Time</span><b>{formatTime(session.finished ? score.durationSec : elapsed)}</b></div>
+                  {clock === null ? (
+                    <div><span className="muted small">Time</span><b>{formatTime(session.finished ? score.durationSec : elapsed)}</b></div>
+                  ) : clock >= 0 ? (
+                    <div><span className="muted small">Time left</span><b className={clock < 30 ? "text-warn" : ""}>{formatTime(clock)}</b></div>
+                  ) : (
+                    <div><span className="muted small">Overtime</span><b className="text-error">+{formatTime(-clock)}</b></div>
+                  )}
                   <div className="progress"><span style={{ width: `${(100 * score.stepsCompleted) / Math.max(1, score.stepsTotal)}%` }} /></div>
                   {hint && <div className="hint">💡 {hint}</div>}
                   <div className="row">
-                    <button className="btn sm" onClick={askHint} disabled={session.finished || needName}>Hint (−5)</button>
-                    <button className="btn sm ghost" onClick={() => changeMode("guided")} disabled={session.finished || needName}>Switch to guided</button>
-                    <button className="btn sm ghost danger" onClick={() => finish(session, false, mode)} disabled={session.finished || needName}>Give up</button>
+                    <button className="btn sm" onClick={askHint} disabled={session.finished}>Hint (−5)</button>
+                    <button className="btn sm ghost" onClick={() => changeMode("guided")} disabled={session.finished}>Switch to guided</button>
+                    <button className="btn sm ghost danger" onClick={() => finish(session, false, mode)} disabled={session.finished}>Give up</button>
                   </div>
                 </section>
               )}
@@ -341,6 +382,22 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                   {sim.scenarios.length > 0 && (
                     <button className="btn sm" onClick={() => changeMode("scenario")}>Try a scenario →</button>
                   )}
+                </section>
+              )}
+
+              {objectives.length > 0 && (
+                <section className="panel">
+                  <h3>Objectives</h3>
+                  <p className="muted small">Optional goals while you explore. They tick off by themselves.</p>
+                  <ul className="checklist">
+                    {objectives.map((o) => (
+                      <li key={o.id} className={o.met ? "met" : ""}>
+                        <span aria-hidden>{o.met ? "✓" : "○"}</span> {o.label}
+                        <span className="sr-only">{o.met ? " (done)" : " (not yet)"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="muted small">{objectives.filter((o) => o.met).length} of {objectives.length} done</p>
                 </section>
               )}
 
@@ -366,11 +423,55 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
         <div className="modal-backdrop">
           <div className="modal">
             <h2>{summary.completed ? "Scenario complete" : "Scenario ended"}</h2>
-            <p className="big-score">{summary.score}<span>/100</span></p>
+            <p className="big-score">{summary.grade.score}<span>/100</span></p>
+            <p>
+              {summary.grade.passed === null ? (
+                <span className="status neutral">⏳ Awaiting trainer marking</span>
+              ) : summary.grade.passed ? (
+                <span className="status good">✓ Passed</span>
+              ) : (
+                <span className="status bad">✕ Not passed</span>
+              )}{" "}
+              <span className="muted small">
+                Pass mark {summary.grade.passScore} · {summary.grade.schemeName} grading
+                {summary.grade.rubric.length > 0 && summary.grade.rubricWeight > 0 && ` · points ${summary.grade.pointsScore} (${100 - summary.grade.rubricWeight}%) + rubric (${summary.grade.rubricWeight}%)`}
+                {summary.grade.overtimeSec > 0 && ` · ${formatTime(summary.grade.overtimeSec)} over time`}
+              </span>
+            </p>
+            {assignmentMet !== undefined && (
+              <p className={`alert ${assignmentMet ? "info" : "warn"} small`}>
+                {assignmentMet === true
+                  ? "📋 Assignment complete. Nice work!"
+                  : assignmentMet === null
+                    ? "📋 This may complete your assignment once a trainer marks it."
+                    : `📋 Not enough for your assignment yet: ${REQUIREMENT_TEXT[assignment!.requirement].toLowerCase()}.`}{" "}
+                <a href="#/my">My training</a>
+              </p>
+            )}
+            <details className="flow-details" open>
+              <summary>Where your points came from</summary>
+              <PointsFlow
+                compact
+                b={breakdown(
+                  {
+                    score: summary.grade.score,
+                    completed: summary.completed,
+                    errors: session.errors,
+                    hintsUsed: session.hintsUsed,
+                    stepsCompleted: score.stepsCompleted,
+                    stepsTotal: score.stepsTotal,
+                    grading: summary.grade,
+                    penalties: session.penalties,
+                  },
+                  stepTitles(sim, scenario.id, score.pathName, session.vars),
+                )}
+              />
+            </details>
             <p className="muted">
               {score.stepsCompleted} of {score.stepsTotal} steps · {session.errors} error{session.errors === 1 ? "" : "s"} · {session.hintsUsed} hint
               {session.hintsUsed === 1 ? "" : "s"} · {formatTime(summary.durationSec)}
               {(session.assisted || mode === "guided") && " · assisted"}
+              {scenario.alternatePaths.length > 0 && ` · path: ${score.pathName}`}
             </p>
             {session.mistakes.length > 0 && (
               <div className="panel">
@@ -418,5 +519,28 @@ function RecordingPanel({ scenarioTitle, steps, onRemove, onSave, onCancel }: {
         <button className="btn sm ghost" onClick={onCancel}>Cancel</button>
       </div>
     </section>
+  );
+}
+
+/** Tells the trainee up front how this run is graded. */
+function GradingInfo({ scheme, rubric }: { scheme: GradingScheme; rubric: GradingScheme["rubric"] }) {
+  const p = scheme.points;
+  return (
+    <details className="grading-info">
+      <summary className="small">How you're graded ({scheme.name})</summary>
+      <ul className="small">
+        <li>Finish the task for 100 points; −{p.errorPenalty} per mistake, −{p.hintPenalty} per hint.</li>
+        {p.timeLimitSec !== null && (
+          <li>Time limit {formatTime(p.timeLimitSec)}; −{p.overtimePenaltyPerMin} per minute over.</li>
+        )}
+        {rubric.length > 0 && (
+          <li>
+            {scheme.rubricWeight > 0 ? `${scheme.rubricWeight}% of the score comes from:` : "Also assessed:"}
+            <ul>{rubric.map((c) => <li key={c.id}>{c.label}{c.check.type === "manual" ? " (marked by a trainer afterwards)" : ""}</li>)}</ul>
+          </li>
+        )}
+        <li>Pass mark {p.passScore}; {p.masteryScore}+ without help counts as mastered.</li>
+      </ul>
+    </details>
   );
 }

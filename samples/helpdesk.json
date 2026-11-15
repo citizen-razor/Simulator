@@ -1,18 +1,62 @@
 {
   "id": "sample-helpdesk",
   "title": "Helpdesk Ticketing (sample)",
-  "description": "A small ticketing system: sign in, work a ticket to resolution, and log new tickets. Built by hand as a reference for how simulations are structured.",
+  "description": "A small ticketing system: sign in, work a ticket to resolution (two valid ways), and log new tickets. Ticket numbers and people's names change every run. Built by hand as a reference for how simulations are structured.",
   "startScreenId": "login",
   "variables": [
-    { "name": "username", "initial": "" },
-    { "name": "password", "initial": "" },
-    { "name": "t1042_status", "initial": "Open", "description": "Status of ticket TCK-1042 as shown on the dashboard" },
-    { "name": "status", "initial": "Open", "description": "Status dropdown on the ticket screen" },
-    { "name": "notes", "initial": "" },
-    { "name": "newTitle", "initial": "" },
-    { "name": "priority", "initial": "Low" },
-    { "name": "newDesc", "initial": "" },
-    { "name": "lastCreated", "initial": "" }
+    {
+      "name": "username",
+      "initial": ""
+    },
+    {
+      "name": "password",
+      "initial": ""
+    },
+    {
+      "name": "t1042_status",
+      "initial": "Open",
+      "description": "Status of ticket TCK-1042 as shown on the dashboard"
+    },
+    {
+      "name": "status",
+      "initial": "Open",
+      "description": "Status dropdown on the ticket screen"
+    },
+    {
+      "name": "notes",
+      "initial": ""
+    },
+    {
+      "name": "newTitle",
+      "initial": ""
+    },
+    {
+      "name": "priority",
+      "initial": "Low"
+    },
+    {
+      "name": "newDesc",
+      "initial": ""
+    },
+    {
+      "name": "lastCreated",
+      "initial": ""
+    },
+    {
+      "name": "ticketId",
+      "initial": "TCK-1042",
+      "description": "The printer ticket's number (random each run)"
+    },
+    {
+      "name": "reporter",
+      "initial": "J. Rivera",
+      "description": "Who reported the printer problem (random each run)"
+    },
+    {
+      "name": "caller",
+      "initial": "Grace Kim",
+      "description": "The sales manager calling about the VPN (random each run)"
+    }
   ],
   "screens": [
     {
@@ -20,15 +64,96 @@
       "name": "Sign in",
       "aspect": 1.6,
       "elements": [
-        { "id": "login-title", "label": "Helpdesk Portal: Sign in", "kind": "text", "rect": { "x": 30, "y": 14, "w": 40, "h": 8 }, "rules": [] },
-        { "id": "login-user", "label": "Username", "kind": "input", "placeholder": "Username", "bindVar": "username", "rect": { "x": 35, "y": 30, "w": 30, "h": 8 }, "rules": [] },
-        { "id": "login-pass", "label": "Password", "kind": "input", "placeholder": "Password", "bindVar": "password", "rect": { "x": 35, "y": 42, "w": 30, "h": 8 }, "rules": [] },
         {
-          "id": "login-submit", "label": "Sign in", "kind": "button", "rect": { "x": 35, "y": 56, "w": 30, "h": 8 },
+          "id": "login-title",
+          "label": "Helpdesk Portal: Sign in",
+          "kind": "text",
+          "rect": {
+            "x": 30,
+            "y": 14,
+            "w": 40,
+            "h": 8
+          },
+          "rules": []
+        },
+        {
+          "id": "login-user",
+          "label": "Username",
+          "kind": "input",
+          "placeholder": "Username",
+          "bindVar": "username",
+          "rect": {
+            "x": 35,
+            "y": 30,
+            "w": 30,
+            "h": 8
+          },
+          "rules": []
+        },
+        {
+          "id": "login-pass",
+          "label": "Password",
+          "kind": "input",
+          "placeholder": "Password",
+          "bindVar": "password",
+          "rect": {
+            "x": 35,
+            "y": 42,
+            "w": 30,
+            "h": 8
+          },
+          "rules": []
+        },
+        {
+          "id": "login-submit",
+          "label": "Sign in",
+          "kind": "button",
+          "rect": {
+            "x": 35,
+            "y": 56,
+            "w": 30,
+            "h": 8
+          },
           "rules": [
-            { "if": [{ "var": "username", "op": "empty" }], "then": [{ "type": "message", "value": "Enter your username.", "tone": "error" }] },
-            { "if": [{ "var": "password", "op": "empty" }], "then": [{ "type": "message", "value": "Enter your password.", "tone": "error" }] },
-            { "if": [], "then": [{ "type": "navigate", "screenId": "dashboard" }] }
+            {
+              "if": [
+                {
+                  "var": "username",
+                  "op": "empty"
+                }
+              ],
+              "then": [
+                {
+                  "type": "message",
+                  "value": "Enter your username.",
+                  "tone": "error"
+                }
+              ]
+            },
+            {
+              "if": [
+                {
+                  "var": "password",
+                  "op": "empty"
+                }
+              ],
+              "then": [
+                {
+                  "type": "message",
+                  "value": "Enter your password.",
+                  "tone": "error"
+                }
+              ]
+            },
+            {
+              "if": [],
+              "then": [
+                {
+                  "type": "navigate",
+                  "screenId": "dashboard"
+                }
+              ]
+            }
           ]
         }
       ]
@@ -38,42 +163,334 @@
       "name": "Dashboard",
       "aspect": 1.6,
       "elements": [
-        { "id": "dash-welcome", "label": "Welcome, {{username}}", "kind": "text", "rect": { "x": 4, "y": 4, "w": 50, "h": 7 }, "rules": [] },
-        { "id": "dash-signout", "label": "Sign out", "kind": "link", "rect": { "x": 84, "y": 4, "w": 12, "h": 7 }, "rules": [{ "if": [], "then": [{ "type": "navigate", "screenId": "login" }] }] },
-        { "id": "dash-heading", "label": "My queue", "kind": "text", "rect": { "x": 4, "y": 16, "w": 30, "h": 6 }, "rules": [] },
-        { "id": "dash-new", "label": "+ New ticket", "kind": "button", "rect": { "x": 76, "y": 15, "w": 20, "h": 8 }, "rules": [{ "if": [], "then": [{ "type": "navigate", "screenId": "new-ticket" }] }] },
         {
-          "id": "dash-t1042", "label": "TCK-1042 · Printer offline on floor 3 · {{t1042_status}}", "kind": "hotspot", "rect": { "x": 4, "y": 27, "w": 92, "h": 9 },
-          "rules": [{ "if": [], "then": [{ "type": "navigate", "screenId": "ticket" }] }]
+          "id": "dash-welcome",
+          "label": "Welcome, {{username}}",
+          "kind": "text",
+          "rect": {
+            "x": 4,
+            "y": 4,
+            "w": 50,
+            "h": 7
+          },
+          "rules": []
         },
-        { "id": "dash-t1043", "label": "TCK-1043 · Password reset request · Waiting on user", "kind": "hotspot", "rect": { "x": 4, "y": 38, "w": 92, "h": 9 }, "rules": [{ "if": [], "then": [{ "type": "message", "value": "This ticket is assigned to another agent.", "tone": "info" }] }] },
-        { "id": "dash-last", "label": "✓ Created: {{lastCreated}}", "kind": "text", "visibleIf": [{ "var": "lastCreated", "op": "notEmpty" }], "rect": { "x": 4, "y": 52, "w": 92, "h": 7 }, "rules": [] }
+        {
+          "id": "dash-signout",
+          "label": "Sign out",
+          "kind": "link",
+          "rect": {
+            "x": 84,
+            "y": 4,
+            "w": 12,
+            "h": 7
+          },
+          "rules": [
+            {
+              "if": [],
+              "then": [
+                {
+                  "type": "navigate",
+                  "screenId": "login"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "dash-heading",
+          "label": "My queue",
+          "kind": "text",
+          "rect": {
+            "x": 4,
+            "y": 16,
+            "w": 30,
+            "h": 6
+          },
+          "rules": []
+        },
+        {
+          "id": "dash-new",
+          "label": "+ New ticket",
+          "kind": "button",
+          "rect": {
+            "x": 76,
+            "y": 15,
+            "w": 20,
+            "h": 8
+          },
+          "rules": [
+            {
+              "if": [],
+              "then": [
+                {
+                  "type": "navigate",
+                  "screenId": "new-ticket"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "dash-t1042",
+          "label": "{{ticketId}} · Printer offline on floor 3 · {{t1042_status}}",
+          "kind": "hotspot",
+          "rect": {
+            "x": 4,
+            "y": 27,
+            "w": 92,
+            "h": 9
+          },
+          "rules": [
+            {
+              "if": [],
+              "then": [
+                {
+                  "type": "navigate",
+                  "screenId": "ticket"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "dash-t1043",
+          "label": "TCK-1043 · Password reset request · Waiting on user",
+          "kind": "hotspot",
+          "rect": {
+            "x": 4,
+            "y": 38,
+            "w": 92,
+            "h": 9
+          },
+          "rules": [
+            {
+              "if": [],
+              "then": [
+                {
+                  "type": "message",
+                  "value": "This ticket is assigned to another agent.",
+                  "tone": "info"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "dash-last",
+          "label": "✓ Created: {{lastCreated}}",
+          "kind": "text",
+          "visibleIf": [
+            {
+              "var": "lastCreated",
+              "op": "notEmpty"
+            }
+          ],
+          "rect": {
+            "x": 4,
+            "y": 52,
+            "w": 92,
+            "h": 7
+          },
+          "rules": []
+        }
       ]
     },
     {
       "id": "ticket",
-      "name": "Ticket TCK-1042",
+      "name": "Ticket",
       "aspect": 1.6,
       "elements": [
-        { "id": "tk-back", "label": "← Back to queue", "kind": "link", "rect": { "x": 4, "y": 4, "w": 20, "h": 7 }, "rules": [{ "if": [], "then": [{ "type": "navigate", "screenId": "dashboard" }] }] },
-        { "id": "tk-title", "label": "TCK-1042: Printer offline on floor 3", "kind": "text", "rect": { "x": 4, "y": 14, "w": 70, "h": 7 }, "rules": [] },
-        { "id": "tk-desc", "label": "Reported by J. Rivera: \"The floor 3 printer shows offline for everyone since this morning.\"", "kind": "text", "rect": { "x": 4, "y": 23, "w": 92, "h": 9 }, "rules": [] },
-        { "id": "tk-status-label", "label": "Status", "kind": "text", "rect": { "x": 4, "y": 36, "w": 15, "h": 7 }, "rules": [] },
-        { "id": "tk-status", "label": "Status", "kind": "select", "options": ["Open", "In progress", "Resolved"], "bindVar": "status", "rect": { "x": 20, "y": 36, "w": 30, "h": 7 }, "rules": [] },
-        { "id": "tk-notes", "label": "Resolution notes", "kind": "textarea", "placeholder": "Resolution notes (required to resolve)", "bindVar": "notes", "rect": { "x": 4, "y": 47, "w": 92, "h": 22 }, "rules": [] },
         {
-          "id": "tk-save", "label": "Save", "kind": "button", "rect": { "x": 76, "y": 74, "w": 20, "h": 8 },
+          "id": "tk-back",
+          "label": "← Back to queue",
+          "kind": "link",
+          "rect": {
+            "x": 4,
+            "y": 4,
+            "w": 20,
+            "h": 7
+          },
           "rules": [
             {
-              "if": [{ "var": "status", "op": "eq", "value": "Resolved" }, { "var": "notes", "op": "empty" }],
-              "then": [{ "type": "message", "value": "Resolution notes are required to resolve a ticket.", "tone": "error" }]
+              "if": [],
+              "then": [
+                {
+                  "type": "navigate",
+                  "screenId": "dashboard"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "tk-title",
+          "label": "{{ticketId}}: Printer offline on floor 3",
+          "kind": "text",
+          "rect": {
+            "x": 4,
+            "y": 14,
+            "w": 70,
+            "h": 7
+          },
+          "rules": []
+        },
+        {
+          "id": "tk-desc",
+          "label": "Reported by {{reporter}}: \"The floor 3 printer shows offline for everyone since this morning.\"",
+          "kind": "text",
+          "rect": {
+            "x": 4,
+            "y": 23,
+            "w": 92,
+            "h": 9
+          },
+          "rules": []
+        },
+        {
+          "id": "tk-status-label",
+          "label": "Status",
+          "kind": "text",
+          "rect": {
+            "x": 4,
+            "y": 36,
+            "w": 15,
+            "h": 7
+          },
+          "rules": []
+        },
+        {
+          "id": "tk-status",
+          "label": "Status",
+          "kind": "select",
+          "options": [
+            "Open",
+            "In progress",
+            "Resolved"
+          ],
+          "bindVar": "status",
+          "rect": {
+            "x": 20,
+            "y": 36,
+            "w": 30,
+            "h": 7
+          },
+          "rules": []
+        },
+        {
+          "id": "tk-notes",
+          "label": "Resolution notes",
+          "kind": "textarea",
+          "placeholder": "Resolution notes (required to resolve)",
+          "bindVar": "notes",
+          "rect": {
+            "x": 4,
+            "y": 47,
+            "w": 92,
+            "h": 22
+          },
+          "rules": []
+        },
+        {
+          "id": "tk-resolve",
+          "label": "✓ Resolve",
+          "kind": "button",
+          "rect": {
+            "x": 52,
+            "y": 74,
+            "w": 20,
+            "h": 8
+          },
+          "rules": [
+            {
+              "if": [
+                {
+                  "var": "notes",
+                  "op": "empty"
+                }
+              ],
+              "then": [
+                {
+                  "type": "message",
+                  "value": "Add resolution notes first.",
+                  "tone": "error"
+                }
+              ]
             },
             {
               "if": [],
               "then": [
-                { "type": "set", "var": "t1042_status", "value": "{{status}}" },
-                { "type": "message", "value": "Ticket saved as {{status}}.", "tone": "success" },
-                { "type": "navigate", "screenId": "dashboard" }
+                {
+                  "type": "set",
+                  "var": "status",
+                  "value": "Resolved"
+                },
+                {
+                  "type": "set",
+                  "var": "t1042_status",
+                  "value": "Resolved"
+                },
+                {
+                  "type": "message",
+                  "value": "Ticket resolved.",
+                  "tone": "success"
+                },
+                {
+                  "type": "navigate",
+                  "screenId": "dashboard"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "tk-save",
+          "label": "Save",
+          "kind": "button",
+          "rect": {
+            "x": 76,
+            "y": 74,
+            "w": 20,
+            "h": 8
+          },
+          "rules": [
+            {
+              "if": [
+                {
+                  "var": "status",
+                  "op": "eq",
+                  "value": "Resolved"
+                },
+                {
+                  "var": "notes",
+                  "op": "empty"
+                }
+              ],
+              "then": [
+                {
+                  "type": "message",
+                  "value": "Resolution notes are required to resolve a ticket.",
+                  "tone": "error"
+                }
+              ]
+            },
+            {
+              "if": [],
+              "then": [
+                {
+                  "type": "set",
+                  "var": "t1042_status",
+                  "value": "{{status}}"
+                },
+                {
+                  "type": "message",
+                  "value": "Ticket saved as {{status}}.",
+                  "tone": "success"
+                },
+                {
+                  "type": "navigate",
+                  "screenId": "dashboard"
+                }
               ]
             }
           ]
@@ -85,21 +502,129 @@
       "name": "New ticket",
       "aspect": 1.6,
       "elements": [
-        { "id": "nt-back", "label": "← Cancel", "kind": "link", "rect": { "x": 4, "y": 4, "w": 15, "h": 7 }, "rules": [{ "if": [], "then": [{ "type": "navigate", "screenId": "dashboard" }] }] },
-        { "id": "nt-heading", "label": "Log a new ticket", "kind": "text", "rect": { "x": 4, "y": 14, "w": 50, "h": 7 }, "rules": [] },
-        { "id": "nt-title", "label": "Title", "kind": "input", "placeholder": "Short summary", "bindVar": "newTitle", "rect": { "x": 4, "y": 25, "w": 60, "h": 8 }, "rules": [] },
-        { "id": "nt-priority", "label": "Priority", "kind": "select", "options": ["Low", "Medium", "High"], "bindVar": "priority", "rect": { "x": 68, "y": 25, "w": 28, "h": 8 }, "rules": [] },
-        { "id": "nt-desc", "label": "Description", "kind": "textarea", "placeholder": "What is happening? Who is affected?", "bindVar": "newDesc", "rect": { "x": 4, "y": 37, "w": 92, "h": 28 }, "rules": [] },
         {
-          "id": "nt-submit", "label": "Submit ticket", "kind": "button", "rect": { "x": 72, "y": 70, "w": 24, "h": 8 },
+          "id": "nt-back",
+          "label": "← Cancel",
+          "kind": "link",
+          "rect": {
+            "x": 4,
+            "y": 4,
+            "w": 15,
+            "h": 7
+          },
           "rules": [
-            { "if": [{ "var": "newTitle", "op": "empty" }], "then": [{ "type": "message", "value": "A title is required.", "tone": "error" }] },
             {
               "if": [],
               "then": [
-                { "type": "set", "var": "lastCreated", "value": "{{newTitle}} ({{priority}})" },
-                { "type": "message", "value": "Ticket created.", "tone": "success" },
-                { "type": "navigate", "screenId": "dashboard" }
+                {
+                  "type": "navigate",
+                  "screenId": "dashboard"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "nt-heading",
+          "label": "Log a new ticket",
+          "kind": "text",
+          "rect": {
+            "x": 4,
+            "y": 14,
+            "w": 50,
+            "h": 7
+          },
+          "rules": []
+        },
+        {
+          "id": "nt-title",
+          "label": "Title",
+          "kind": "input",
+          "placeholder": "Short summary",
+          "bindVar": "newTitle",
+          "rect": {
+            "x": 4,
+            "y": 25,
+            "w": 60,
+            "h": 8
+          },
+          "rules": []
+        },
+        {
+          "id": "nt-priority",
+          "label": "Priority",
+          "kind": "select",
+          "options": [
+            "Low",
+            "Medium",
+            "High"
+          ],
+          "bindVar": "priority",
+          "rect": {
+            "x": 68,
+            "y": 25,
+            "w": 28,
+            "h": 8
+          },
+          "rules": []
+        },
+        {
+          "id": "nt-desc",
+          "label": "Description",
+          "kind": "textarea",
+          "placeholder": "What is happening? Who is affected?",
+          "bindVar": "newDesc",
+          "rect": {
+            "x": 4,
+            "y": 37,
+            "w": 92,
+            "h": 28
+          },
+          "rules": []
+        },
+        {
+          "id": "nt-submit",
+          "label": "Submit ticket",
+          "kind": "button",
+          "rect": {
+            "x": 72,
+            "y": 70,
+            "w": 24,
+            "h": 8
+          },
+          "rules": [
+            {
+              "if": [
+                {
+                  "var": "newTitle",
+                  "op": "empty"
+                }
+              ],
+              "then": [
+                {
+                  "type": "message",
+                  "value": "A title is required.",
+                  "tone": "error"
+                }
+              ]
+            },
+            {
+              "if": [],
+              "then": [
+                {
+                  "type": "set",
+                  "var": "lastCreated",
+                  "value": "{{newTitle}} ({{priority}})"
+                },
+                {
+                  "type": "message",
+                  "value": "Ticket created.",
+                  "tone": "success"
+                },
+                {
+                  "type": "navigate",
+                  "screenId": "dashboard"
+                }
               ]
             }
           ]
@@ -111,35 +636,190 @@
     {
       "id": "resolve-printer",
       "title": "Resolve the printer ticket",
-      "goal": "Sign in, then close out ticket TCK-1042 as Resolved with resolution notes.",
-      "briefing": "Facilities confirmed they power-cycled the floor 3 printer and it is back online. Update the ticket.",
+      "goal": "Sign in, then close out ticket {{ticketId}} as Resolved with resolution notes.",
+      "briefing": "Facilities confirmed they power-cycled the floor 3 printer that {{reporter}} reported. Update the ticket.",
       "steps": [
-        { "id": "s1", "instruction": "Enter your username.", "hint": "Any username works in this simulation.", "elementId": "login-user", "expect": "any" },
-        { "id": "s2", "instruction": "Enter your password.", "elementId": "login-pass", "expect": "any" },
-        { "id": "s3", "instruction": "Click Sign in.", "elementId": "login-submit", "expect": "any" },
-        { "id": "s4", "instruction": "Open ticket TCK-1042 from your queue.", "elementId": "dash-t1042", "expect": "any" },
-        { "id": "s5", "instruction": "Set the status to Resolved.", "elementId": "tk-status", "expect": "eq", "value": "Resolved" },
-        { "id": "s6", "instruction": "Write resolution notes describing the fix.", "hint": "e.g. \"Facilities power-cycled the printer; confirmed online.\"", "elementId": "tk-notes", "expect": "any" },
-        { "id": "s7", "instruction": "Save the ticket.", "elementId": "tk-save", "expect": "any" }
+        {
+          "id": "s1",
+          "instruction": "Enter your username.",
+          "hint": "Any username works in this simulation.",
+          "elementId": "login-user",
+          "expect": "any"
+        },
+        {
+          "id": "s2",
+          "instruction": "Enter your password.",
+          "elementId": "login-pass",
+          "expect": "any"
+        },
+        {
+          "id": "s3",
+          "instruction": "Click Sign in.",
+          "elementId": "login-submit",
+          "expect": "any"
+        },
+        {
+          "id": "s4",
+          "instruction": "Open ticket {{ticketId}} from your queue.",
+          "elementId": "dash-t1042",
+          "expect": "any"
+        },
+        {
+          "id": "s5",
+          "instruction": "Set the status to Resolved.",
+          "elementId": "tk-status",
+          "expect": "eq",
+          "value": "Resolved"
+        },
+        {
+          "id": "s6",
+          "instruction": "Write resolution notes describing the fix.",
+          "hint": "e.g. \"Facilities power-cycled the printer; confirmed online.\"",
+          "elementId": "tk-notes",
+          "expect": "any"
+        },
+        {
+          "id": "s7",
+          "instruction": "Save the ticket.",
+          "elementId": "tk-save",
+          "expect": "any"
+        }
       ],
-      "successCriteria": [{ "var": "t1042_status", "op": "eq", "value": "Resolved" }],
-      "initialVars": []
+      "successCriteria": [
+        {
+          "var": "t1042_status",
+          "op": "eq",
+          "value": "Resolved"
+        }
+      ],
+      "initialVars": [],
+      "alternatePaths": [
+        {
+          "id": "quick-resolve",
+          "name": "Quick resolve",
+          "steps": [
+            {
+              "id": "q1",
+              "instruction": "Enter your username.",
+              "hint": "Any username works in this simulation.",
+              "elementId": "login-user",
+              "expect": "any"
+            },
+            {
+              "id": "q2",
+              "instruction": "Enter your password.",
+              "elementId": "login-pass",
+              "expect": "any"
+            },
+            {
+              "id": "q3",
+              "instruction": "Click Sign in.",
+              "elementId": "login-submit",
+              "expect": "any"
+            },
+            {
+              "id": "q4",
+              "instruction": "Open ticket {{ticketId}} from your queue.",
+              "elementId": "dash-t1042",
+              "expect": "any"
+            },
+            {
+              "id": "q5",
+              "instruction": "Write resolution notes describing the fix.",
+              "elementId": "tk-notes",
+              "expect": "any"
+            },
+            {
+              "id": "q6",
+              "instruction": "Use the ✓ Resolve quick action.",
+              "hint": "Resolve sets the status for you.",
+              "elementId": "tk-resolve",
+              "expect": "any"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "log-vpn",
       "title": "Log a high-priority outage",
       "goal": "Log a new ticket for a VPN outage affecting the sales team, with the right priority.",
-      "briefing": "The sales manager calls: nobody on the sales team can connect to the VPN. You are already signed in.",
+      "briefing": "{{caller}}, the sales manager, calls: nobody on the sales team can connect to the VPN. You are already signed in.",
       "startScreenId": "dashboard",
-      "initialVars": [{ "name": "username", "value": "agent" }],
-      "steps": [
-        { "id": "v1", "instruction": "Start a new ticket.", "elementId": "dash-new", "expect": "any" },
-        { "id": "v2", "instruction": "Give it a title that mentions the VPN.", "hint": "e.g. \"VPN down for sales team\"", "elementId": "nt-title", "expect": "contains", "value": "vpn" },
-        { "id": "v3", "instruction": "Set the priority. A whole team is blocked.", "hint": "Team-wide outages are High priority.", "elementId": "nt-priority", "expect": "eq", "value": "High" },
-        { "id": "v4", "instruction": "Describe the impact.", "elementId": "nt-desc", "expect": "any" },
-        { "id": "v5", "instruction": "Submit the ticket.", "elementId": "nt-submit", "expect": "any" }
+      "initialVars": [
+        {
+          "name": "username",
+          "value": "agent"
+        }
       ],
-      "successCriteria": [{ "var": "lastCreated", "op": "contains", "value": "High" }]
+      "steps": [
+        {
+          "id": "v1",
+          "instruction": "Start a new ticket.",
+          "elementId": "dash-new",
+          "expect": "any"
+        },
+        {
+          "id": "v2",
+          "instruction": "Give it a title that mentions the VPN.",
+          "hint": "e.g. \"VPN down for sales team\"",
+          "elementId": "nt-title",
+          "expect": "contains",
+          "value": "vpn"
+        },
+        {
+          "id": "v3",
+          "instruction": "Set the priority. A whole team is blocked.",
+          "hint": "Team-wide outages are High priority.",
+          "elementId": "nt-priority",
+          "expect": "eq",
+          "value": "High"
+        },
+        {
+          "id": "v4",
+          "instruction": "Describe the impact, and record who reported it.",
+          "elementId": "nt-desc",
+          "expect": "contains",
+          "hint": "Mention the caller by name ({{caller}}) so the network team can follow up.",
+          "value": "{{caller}}"
+        },
+        {
+          "id": "v5",
+          "instruction": "Submit the ticket.",
+          "elementId": "nt-submit",
+          "expect": "any"
+        }
+      ],
+      "successCriteria": [
+        {
+          "var": "lastCreated",
+          "op": "contains",
+          "value": "High"
+        }
+      ]
+    }
+  ],
+  "randomData": [
+    {
+      "var": "ticketId",
+      "kind": "pattern",
+      "pattern": "TCK-####"
+    },
+    {
+      "var": "reporter",
+      "kind": "name"
+    },
+    {
+      "var": "caller",
+      "kind": "pick",
+      "options": [
+        "Ana Silva",
+        "Ben Okafor",
+        "Grace Kim",
+        "Liam Murphy",
+        "Priya Patel",
+        "Wei Chen"
+      ]
     }
   ]
 }

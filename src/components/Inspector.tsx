@@ -1,10 +1,13 @@
 /** Property panels for the editor's right-hand side. Each takes a value and an onChange. */
+import { createContext, useContext, useEffect, useState } from "react";
 import {
   ActionTypes,
   ConditionOps,
   ElementKinds,
   ExpectOps,
   FIELD_KINDS,
+  MAIN_PATH_ID,
+  scenarioPaths,
   type Action,
   type Condition,
   type Rule,
@@ -15,6 +18,17 @@ import {
   type Step,
 } from "../../shared/schema";
 import { newId } from "../../shared/engine";
+import type { GradingScheme } from "../../shared/library";
+import type { PersonaLibrary } from "../../shared/personas";
+import { ScenarioPersonas } from "./PersonaAssignments";
+
+/**
+ * Variables that exist only at play time and aren't declared in the simulation, such as
+ * those provided by personas ({{customer.name}}). The editor provides them so variable
+ * fields can suggest them.
+ */
+export const ExtraVariablesContext = createContext<{ names: string[]; tables: string[] }>({ names: [], tables: [] });
+import { GeneratorKinds, generateValues, newSeed, type RandomVar } from "../../shared/random";
 
 const OP_LABEL: Record<(typeof ConditionOps)[number], string> = {
   eq: "equals",
@@ -50,13 +64,52 @@ export function variableNames(sim: Simulation): string[] {
   return [...names].sort();
 }
 
+/**
+ * An id/name that other parts of the simulation refer to. Edits are applied on Enter or
+ * when leaving the field, through `onRename`, which updates every reference and returns
+ * an error message if the new name isn't allowed. Escape cancels.
+ */
+export function IdField({ label, value, onRename }: { label: string; value: string; onRename: (next: string) => string | null }) {
+  const [draft, setDraft] = useState(value);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    setDraft(value);
+    setErr("");
+  }, [value]);
+  const commit = () => {
+    const next = draft.trim();
+    if (next === value) return setErr("");
+    setErr(onRename(next) ?? "");
+  };
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input
+        className="mono"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") {
+            setDraft(value);
+            setErr("");
+          }
+        }}
+      />
+      {err ? <small className="text-error">{err}</small> : <small className="muted">Renaming updates every reference to it.</small>}
+    </label>
+  );
+}
+
 function VarInput({ value, onChange, sim, placeholder = "variable" }: { value: string; onChange: (v: string) => void; sim: Simulation; placeholder?: string }) {
   const listId = "vars-datalist";
+  const extra = useContext(ExtraVariablesContext);
   return (
     <>
       <input className="mono" list={listId} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
       <datalist id={listId}>
-        {variableNames(sim).map((n) => <option key={n} value={n} />)}
+        {[...variableNames(sim), ...extra.names.filter((n) => !n.includes(".") || !/\.(backstory)$/.test(n))].map((n) => <option key={n} value={n} />)}
       </datalist>
     </>
   );
@@ -143,14 +196,24 @@ export function RulesEditor({ value, onChange, sim }: { value: Rule[]; onChange:
   );
 }
 
-export function ElementInspector({ el, sim, onChange, onDelete }: { el: SimElement; sim: Simulation; onChange: (e: SimElement) => void; onDelete: () => void }) {
+export function ElementInspector({ el, sim, onChange, onDelete, onRename, onDuplicate, onCopy }: {
+  el: SimElement;
+  sim: Simulation;
+  onChange: (e: SimElement) => void;
+  onDelete: () => void;
+  onRename: (next: string) => string | null;
+  onDuplicate: () => void;
+  onCopy: () => void;
+}) {
   const isField = FIELD_KINDS.includes(el.kind);
   const set = (patch: Partial<SimElement>) => onChange({ ...el, ...patch });
   return (
     <div className="inspector">
       <div className="inspector-head">
         <h3>Element</h3>
-        <code className="muted small">{el.id}</code>
+        <span className="spacer" />
+        <button className="btn sm" onClick={onDuplicate} title="Duplicate (Ctrl+D)">⧉ Duplicate</button>
+        <button className="btn sm ghost" onClick={onCopy} title="Copy, then paste on any screen with Ctrl+V">Copy</button>
       </div>
       <label className="field">
         <span>Label</span>
@@ -163,6 +226,7 @@ export function ElementInspector({ el, sim, onChange, onDelete }: { el: SimEleme
           {ElementKinds.map((k) => <option key={k}>{k}</option>)}
         </select>
       </label>
+      <IdField label="Id" value={el.id} onRename={onRename} />
       <div className="field">
         <span>Position (% of screen)</span>
         <div className="rect-inputs">
@@ -194,6 +258,7 @@ export function ElementInspector({ el, sim, onChange, onDelete }: { el: SimEleme
           )}
         </>
       )}
+      {el.kind === "table" && <TableSourceField el={el} onChange={(tableSource) => set({ tableSource })} />}
       <details open={!!el.visibleIf?.length}>
         <summary>Visible only when…</summary>
         <ConditionsEditor value={el.visibleIf ?? []} onChange={(c) => set({ visibleIf: c.length ? c : undefined })} sim={sim} emptyText="Always visible" />
@@ -209,7 +274,9 @@ export function ElementInspector({ el, sim, onChange, onDelete }: { el: SimEleme
   );
 }
 
-export function ScreenInspector({ screen, sim, onChange, onDelete, onReplaceImage, onMakeStart, onSelectElement }: {
+export function ScreenInspector({ screen, sim, onChange, onDelete, onReplaceImage, onMakeStart, onSelectElement, onRename, onDuplicate }: {
+  onRename: (next: string) => string | null;
+  onDuplicate: () => void;
   screen: Screen;
   sim: Simulation;
   onChange: (s: Screen) => void;
@@ -222,12 +289,14 @@ export function ScreenInspector({ screen, sim, onChange, onDelete, onReplaceImag
     <div className="inspector">
       <div className="inspector-head">
         <h3>Screen</h3>
-        <code className="muted small">{screen.id}</code>
+        <span className="spacer" />
+        <button className="btn sm" onClick={onDuplicate}>⧉ Duplicate screen</button>
       </div>
       <label className="field">
         <span>Name</span>
         <input value={screen.name} onChange={(e) => onChange({ ...screen, name: e.target.value })} />
       </label>
+      <IdField label="Id" value={screen.id} onRename={onRename} />
       <label className="field">
         <span>Description</span>
         <textarea rows={2} value={screen.description ?? ""} onChange={(e) => onChange({ ...screen, description: e.target.value || undefined })} />
@@ -273,16 +342,57 @@ function elementOptions(sim: Simulation) {
   ));
 }
 
-export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord, onPlay }: {
+function elementName(sim: Simulation, id: string) {
+  for (const s of sim.screens) {
+    const e = s.elements.find((x) => x.id === id);
+    if (e) return e.label || e.id;
+  }
+  return `${id} (missing)`;
+}
+
+export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord, onPlay, initialPathId, schemes, personaLib }: {
+  schemes: GradingScheme[] | null;
+  personaLib: PersonaLibrary | null;
   scenario: Scenario;
   sim: Simulation;
   onChange: (s: Scenario) => void;
   onDelete: () => void;
-  onRecord: () => void;
+  onRecord: (pathId: string) => void;
   onPlay: (mode: "guided" | "scenario") => void;
+  initialPathId?: string;
 }) {
   const set = (patch: Partial<Scenario>) => onChange({ ...scenario, ...patch });
-  const setStep = (i: number, patch: Partial<Step>) => set({ steps: scenario.steps.map((s, j) => (j === i ? { ...s, ...patch } : s)) });
+  const paths = scenarioPaths(scenario);
+  const [pathId, setPathId] = useState(initialPathId ?? MAIN_PATH_ID);
+  const path = paths.find((p) => p.id === pathId) ?? paths[0];
+  const isMain = path.id === MAIN_PATH_ID;
+  const steps = path.steps;
+  const setSteps = (next: Step[]) =>
+    isMain ? set({ steps: next }) : set({ alternatePaths: scenario.alternatePaths.map((p) => (p.id === path.id ? { ...p, steps: next } : p)) });
+  const setStep = (i: number, patch: Partial<Step>) => setSteps(steps.map((st, j) => (j === i ? { ...st, ...patch } : st)));
+
+  const addPath = () => {
+    const id = newId("path");
+    // Alternatives usually share their opening steps, so start from a copy of the main path.
+    const copy = scenario.steps.map((st) => ({ ...structuredClone(st), id: newId("step") }));
+    set({ alternatePaths: [...scenario.alternatePaths, { id, name: `Alternative ${scenario.alternatePaths.length + 1}`, steps: copy }] });
+    setPathId(id);
+  };
+  const renamePath = (name: string) =>
+    set({ alternatePaths: scenario.alternatePaths.map((p) => (p.id === path.id ? { ...p, name } : p)) });
+  const deletePath = () => {
+    if (!confirm(`Delete the path "${path.name}"?`)) return;
+    set({ alternatePaths: scenario.alternatePaths.filter((p) => p.id !== path.id) });
+    setPathId(MAIN_PATH_ID);
+  };
+  const makeMain = () => {
+    // Swap: this path's steps become the main path; the old main path takes its place as an alternative.
+    set({
+      steps: path.steps,
+      alternatePaths: scenario.alternatePaths.map((p) => (p.id === path.id ? { ...p, name: "Previous main path", steps: scenario.steps } : p)),
+    });
+    setPathId(MAIN_PATH_ID);
+  };
   return (
     <div className="inspector wide">
       <div className="inspector-head">
@@ -310,6 +420,12 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
           {sim.screens.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </label>
+      {sim.randomData.length > 0 && (
+        <label className="check-line">
+          <input type="checkbox" checked={scenario.randomize} onChange={(e) => set({ randomize: e.target.checked })} />
+          Use fresh random values each run
+        </label>
+      )}
       <details open={scenario.initialVars.length > 0}>
         <summary>Starting state ({scenario.initialVars.length})</summary>
         <p className="muted small">Override variable values so the scenario can begin mid-workflow.</p>
@@ -324,16 +440,41 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
         <button className="link-btn add" onClick={() => set({ initialVars: [...scenario.initialVars, { name: "", value: "" }] })}>+ value</button>
       </details>
 
+      {personaLib && personaLib.personas.length > 0 && (
+        <>
+          <h4>Personas in this scenario</h4>
+          <ScenarioPersonas sim={sim} scenario={scenario} lib={personaLib} onChange={(o) => set({ personaOverrides: o })} />
+        </>
+      )}
+
       <h4>Steps</h4>
-      <p className="muted small">The trainee must perform these in order. Guided mode coaches each one; Scenario mode scores them.</p>
+      <p className="muted small">
+        The trainee performs a path's steps in order. If a task has more than one correct way, add an alternative path:
+        completing <i>any</i> path counts. Guided mode coaches the main path and follows the trainee if they take another.
+      </p>
+      <div className="path-tabs" role="tablist">
+        {paths.map((p) => (
+          <button key={p.id} role="tab" aria-selected={p.id === path.id} className={`chip-btn ${p.id === path.id ? "on" : ""}`} onClick={() => setPathId(p.id)}>
+            {p.name} <span className="count">{p.steps.length}</span>
+          </button>
+        ))}
+        <button className="link-btn add" onClick={addPath} title="Starts as a copy of the main path; change the steps that differ">+ Alternative path</button>
+      </div>
+      {!isMain && (
+        <div className="path-head">
+          <input value={path.name} aria-label="Path name" onChange={(e) => renamePath(e.target.value)} />
+          <button className="btn sm ghost" onClick={makeMain} title="Swap this path with the main path">Make main</button>
+          <button className="btn sm ghost danger" onClick={deletePath}>Delete path</button>
+        </div>
+      )}
       <ol className="step-editor">
-        {scenario.steps.map((st, i) => (
+        {steps.map((st, i) => (
           <li key={st.id}>
             <div className="step-row">
               <input className="grow" value={st.instruction} placeholder="Instruction" onChange={(e) => setStep(i, { instruction: e.target.value })} />
-              <button className="link-btn" onClick={() => set({ steps: move(scenario.steps, i, -1) })} disabled={i === 0}>↑</button>
-              <button className="link-btn" onClick={() => set({ steps: move(scenario.steps, i, 1) })} disabled={i === scenario.steps.length - 1}>↓</button>
-              <button className="link-btn" onClick={() => set({ steps: scenario.steps.filter((_, j) => j !== i) })}>✕</button>
+              <button className="link-btn" onClick={() => setSteps(move(steps, i, -1))} disabled={i === 0}>↑</button>
+              <button className="link-btn" onClick={() => setSteps(move(steps, i, 1))} disabled={i === steps.length - 1}>↓</button>
+              <button className="link-btn" onClick={() => setSteps(steps.filter((_, j) => j !== i))}>✕</button>
             </div>
             <div className="step-row">
               <select className="grow" value={st.elementId} onChange={(e) => setStep(i, { elementId: e.target.value })}>
@@ -345,14 +486,45 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
               </select>
               {st.expect !== "any" && <input value={st.value ?? ""} placeholder="value" onChange={(e) => setStep(i, { value: e.target.value })} />}
             </div>
+            <div className="also-row">
+              {(st.alsoElementIds ?? []).map((id) => (
+                <span key={id} className="chip">
+                  or {elementName(sim, id)}
+                  <button
+                    className="link-btn"
+                    aria-label="Remove alternative"
+                    onClick={() => {
+                      const rest = (st.alsoElementIds ?? []).filter((x) => x !== id);
+                      setStep(i, { alsoElementIds: rest.length ? rest : undefined });
+                    }}
+                  >✕</button>
+                </span>
+              ))}
+              <select
+                className="also-add"
+                value=""
+                title="Other controls that also count for this step"
+                onChange={(e) => e.target.value && setStep(i, { alsoElementIds: [...(st.alsoElementIds ?? []), e.target.value] })}
+              >
+                <option value="">+ also accept…</option>
+                {elementOptions(sim)}
+              </select>
+            </div>
             <input className="hint-input" value={st.hint ?? ""} placeholder="Hint (optional): explain why" onChange={(e) => setStep(i, { hint: e.target.value || undefined })} />
           </li>
         ))}
       </ol>
       <div className="row">
-        <button className="btn sm" onClick={() => set({ steps: [...scenario.steps, { id: newId("step"), instruction: "", elementId: "", expect: "any" }] })}>+ Add step</button>
-        <button className="btn sm" onClick={onRecord}>● Record steps by doing</button>
+        <button className="btn sm" onClick={() => setSteps([...steps, { id: newId("step"), instruction: "", elementId: "", expect: "any" }])}>+ Add step</button>
+        <button className="btn sm" onClick={() => onRecord(path.id)}>● Record steps by doing</button>
       </div>
+      <label className="field">
+        <span>Grading</span>
+        <select value={scenario.gradingSchemeId ?? ""} onChange={(e) => set({ gradingSchemeId: e.target.value || null })}>
+          <option value="">Same as the simulation</option>
+          {(schemes ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </label>
       <h4>Success criteria</h4>
       <ConditionsEditor
         value={scenario.successCriteria}
@@ -366,7 +538,12 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
   );
 }
 
-export function VariablesPanel({ sim, onChange }: { sim: Simulation; onChange: (v: Simulation["variables"]) => void }) {
+export function VariablesPanel({ sim, onChange, onRename, onRandomChange }: {
+  sim: Simulation;
+  onChange: (v: Simulation["variables"]) => void;
+  onRename: (oldName: string, next: string) => string | null;
+  onRandomChange: (r: RandomVar[]) => void;
+}) {
   const vars = sim.variables;
   const set = (i: number, patch: Partial<Simulation["variables"][number]>) => onChange(vars.map((v, j) => (j === i ? { ...v, ...patch } : v)));
   const undeclared = variableNames(sim).filter((n) => !vars.some((v) => v.name === n));
@@ -382,7 +559,7 @@ export function VariablesPanel({ sim, onChange }: { sim: Simulation; onChange: (
         <tbody>
           {vars.map((v, i) => (
             <tr key={i}>
-              <td><input className="mono" value={v.name} onChange={(e) => set(i, { name: e.target.value })} /></td>
+              <td><VarNameCell value={v.name} onRename={(next) => onRename(v.name, next)} /></td>
               <td><input value={v.initial} onChange={(e) => set(i, { initial: e.target.value })} /></td>
               <td><input value={v.description ?? ""} onChange={(e) => set(i, { description: e.target.value || undefined })} /></td>
               <td><button className="link-btn" onClick={() => onChange(vars.filter((_, j) => j !== i))}>✕</button></td>
@@ -397,6 +574,144 @@ export function VariablesPanel({ sim, onChange }: { sim: Simulation; onChange: (
           <button className="link-btn add" onClick={() => onChange([...vars, ...undeclared.map((name) => ({ name, initial: "" }))])}>Declare all</button>
         </p>
       )}
+      <RandomDataEditor sim={sim} onChange={onRandomChange} />
     </div>
+  );
+}
+
+const KIND_LABEL: Record<RandomVar["kind"], string> = {
+  pick: "Pick from a list",
+  number: "Number in a range",
+  pattern: "Pattern",
+  name: "Person's name",
+  date: "Date near today",
+};
+
+/** Random value generators: fresh values for chosen variables at the start of every run. */
+function RandomDataEditor({ sim, onChange }: { sim: Simulation; onChange: (r: RandomVar[]) => void }) {
+  const gens = sim.randomData;
+  const [samples, setSamples] = useState<Record<string, string>[] | null>(null);
+  const set = (i: number, patch: Partial<RandomVar>) => {
+    setSamples(null);
+    onChange(gens.map((g, j) => (j === i ? { ...g, ...patch } : g)));
+  };
+  const names = variableNames(sim);
+  const free = names.filter((n) => !gens.some((g) => g.var === n));
+  const num = (v: string) => (v === "" ? undefined : Number(v));
+  return (
+    <div className="random-data">
+      <h3>Random values</h3>
+      <p className="muted small">
+        Give variables fresh, realistic values every run so trainees learn the process rather than memorising answers. Use them
+        anywhere with {"{{name}}"}: labels, instructions, hints, and expected answers. Scenarios can turn this off.
+      </p>
+      {gens.map((g, i) => (
+        <div key={i} className="criterion">
+          <div className="row tight-top">
+            <select value={g.var} onChange={(e) => set(i, { var: e.target.value })} aria-label="Variable">
+              {[g.var, ...free].filter((v, k, a) => a.indexOf(v) === k).map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <select value={g.kind} onChange={(e) => set(i, { kind: e.target.value as RandomVar["kind"] })} aria-label="Kind">
+              {GeneratorKinds.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+            </select>
+            <span className="spacer" />
+            <button className="link-btn" aria-label="Remove generator" onClick={() => { setSamples(null); onChange(gens.filter((_, j) => j !== i)); }}>✕</button>
+          </div>
+          <div className="gen-params">
+            {g.kind === "pick" && (
+              <>
+                <label className="field">
+                  <span>Options (one per line)</span>
+                  <textarea rows={3} value={(g.options ?? []).join("\n")} onChange={(e) => set(i, { options: e.target.value.split("\n") })} />
+                </label>
+                <label className="field">
+                  <span>Linked group (optional)</span>
+                  <input value={g.group ?? ""} placeholder="e.g. customer" onChange={(e) => set(i, { group: e.target.value || undefined })} />
+                  <small className="muted">Lists in the same group with the same number of lines pick the same line, e.g. a name and its email.</small>
+                </label>
+              </>
+            )}
+            {(g.kind === "number" || g.kind === "date") && (
+              <div className="row tight-top">
+                <label className="inline-num">{g.kind === "date" ? "from day" : "min"}<input type="number" value={g.min ?? ""} onChange={(e) => set(i, { min: num(e.target.value) })} /></label>
+                <label className="inline-num">{g.kind === "date" ? "to day" : "max"}<input type="number" value={g.max ?? ""} onChange={(e) => set(i, { max: num(e.target.value) })} /></label>
+                {g.kind === "number" && (
+                  <label className="inline-num">decimals<input type="number" min={0} max={4} value={g.decimals ?? 0} onChange={(e) => set(i, { decimals: num(e.target.value) })} /></label>
+                )}
+                {g.kind === "date" && <span className="muted small">relative to today; negative = in the past</span>}
+              </div>
+            )}
+            {g.kind === "pattern" && (
+              <label className="field">
+                <span>Pattern</span>
+                <input className="mono" value={g.pattern ?? ""} placeholder="TCK-####" onChange={(e) => set(i, { pattern: e.target.value })} />
+                <small className="muted"># digit · A capital letter · a lower-case letter · ? letter or digit · \ before a symbol keeps it as-is</small>
+              </label>
+            )}
+          </div>
+        </div>
+      ))}
+      <div className="row">
+        <button
+          className="btn sm"
+          disabled={free.length === 0}
+          title={free.length ? "" : "Every variable already has random values"}
+          onClick={() => onChange([...gens, { var: free[0], kind: "name" }])}
+        >
+          + Random value
+        </button>
+        {gens.length > 0 && (
+          <button className="btn sm ghost" onClick={() => setSamples([1, 2, 3].map(() => generateValues(gens, newSeed())))}>🎲 Try it</button>
+        )}
+      </div>
+      {samples && (
+        <table className="var-table samples">
+          <thead><tr>{gens.map((g) => <th key={g.var}>{g.var}</th>)}</tr></thead>
+          <tbody>{samples.map((row, k) => <tr key={k}>{gens.map((g) => <td key={g.var}>{row[g.var] ?? "–"}</td>)}</tr>)}</tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/** Variable name cell: renames on Enter/blur and updates every use of the variable. */
+function VarNameCell({ value, onRename }: { value: string; onRename: (next: string) => string | null }) {
+  const [draft, setDraft] = useState(value);
+  const [err, setErr] = useState("");
+  useEffect(() => setDraft(value), [value]);
+  const commit = () => {
+    const next = draft.trim();
+    if (next !== value) setErr(onRename(next) ?? "");
+  };
+  return (
+    <>
+      <input
+        className="mono"
+        value={draft}
+        title={err || "Renaming updates every use of this variable"}
+        aria-invalid={!!err}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === "Enter" && commit()}
+      />
+      {err && <small className="text-error">{err}</small>}
+    </>
+  );
+}
+
+/** Which table a "table" element shows: usually a persona's record table such as customer.orders. */
+function TableSourceField({ el, onChange }: { el: SimElement; onChange: (v: string | undefined) => void }) {
+  const { tables } = useContext(ExtraVariablesContext);
+  return (
+    <label className="field">
+      <span>Shows the table</span>
+      <input className="mono" list="table-sources" value={el.tableSource ?? ""} placeholder="e.g. customer.orders" onChange={(e) => onChange(e.target.value || undefined)} />
+      <datalist id="table-sources">{tables.map((t) => <option key={t} value={t} />)}</datalist>
+      <small className="muted">
+        {tables.length
+          ? `Tables from this simulation's personas: ${tables.join(", ")}.`
+          : "Link a persona whose template has record tables in ⚙ Settings, then pick one of its tables here."}
+      </small>
+    </label>
   );
 }
