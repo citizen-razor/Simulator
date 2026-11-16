@@ -558,7 +558,8 @@ export function VariablesPanel({ sim, onChange, onRename, onRandomChange }: {
   sim: Simulation;
   onChange: (v: Simulation["variables"]) => void;
   onRename: (oldName: string, next: string) => string | null;
-  onRandomChange: (r: RandomVar[]) => void;
+  /** Random data belongs to a simulation, not a tool: left out when editing a tool. */
+  onRandomChange?: (r: RandomVar[]) => void;
 }) {
   const vars = sim.variables;
   const set = (i: number, patch: Partial<Simulation["variables"][number]>) => onChange(vars.map((v, j) => (j === i ? { ...v, ...patch } : v)));
@@ -590,7 +591,7 @@ export function VariablesPanel({ sim, onChange, onRename, onRandomChange }: {
           <button className="link-btn add" onClick={() => onChange([...vars, ...undeclared.map((name) => ({ name, initial: "" }))])}>Declare all</button>
         </p>
       )}
-      <RandomDataEditor sim={sim} onChange={onRandomChange} />
+      {onRandomChange && <RandomDataEditor sim={sim} onChange={onRandomChange} />}
     </div>
   );
 }

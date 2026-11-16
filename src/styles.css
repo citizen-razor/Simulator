@@ -581,3 +581,17 @@ h2.tight { margin: 0; }
 .ai-review { margin-bottom: 12px; }
 .review-form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .review-form textarea { font: inherit; }
+
+/* Tools */
+.tool-note { background: var(--accent-soft); border-radius: var(--radius); padding: 6px 8px; margin: 6px 0; }
+.editor-title-input { font-weight: 600; font-size: 15px; min-width: 220px; }
+.impact-list { display: flex; flex-direction: column; gap: 8px; padding-left: 18px; }
+.modal.impact { max-width: 640px; }
+.tool-list { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.tool-head { display: flex; gap: 14px; align-items: flex-start; }
+.tool-thumb { width: 120px; height: 75px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); flex: none; }
+.tool-thumb.blank { display: flex; align-items: center; justify-content: center; color: var(--muted); background: var(--surface-2); font-size: 28px; }
+.tool-meta h3 { margin: 0 0 2px; }
+.tool-meta p { margin: 2px 0; }
+.move-here { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.from-tool { margin: 12px 0; }

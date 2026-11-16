@@ -197,3 +197,42 @@ export function checkSimulation(sim: Simulation, schemes: GradingScheme[], perso
     paths,
   };
 }
+
+export interface ImpactRow {
+  simulationId: string;
+  title: string;
+  /** Scenario paths that played through before and would not after the change. */
+  breaks: PathCheck[];
+  /** Broken references the change would introduce (e.g. a step pointing at a removed control). */
+  newIssues: string[];
+  /** Paths checked with the new version. */
+  checked: number;
+}
+
+/**
+ * What a change to a tool would do to each simulation using it: auto-play every scenario
+ * path before and after, and list what newly fails. Problems that already existed aren't
+ * blamed on the change.
+ */
+export function toolImpact(
+  sims: Simulation[],
+  proposed: Pick<Simulation, "startScreenId" | "variables" | "screens">,
+  schemes: GradingScheme[],
+  personas: PersonaLibrary,
+): ImpactRow[] {
+  return sims.map((sim) => {
+    const next: Simulation = { ...sim, startScreenId: proposed.startScreenId, variables: proposed.variables, screens: proposed.screens };
+    const before = checkSimulation(sim, schemes, personas);
+    const after = checkSimulation(next, schemes, personas);
+    const key = (p: PathCheck) => `${p.scenarioId}/${p.path}`;
+    const okBefore = new Set(before.paths.filter((p) => p.ok).map(key));
+    const lintBefore = new Set(lintSimulation(sim));
+    return {
+      simulationId: sim.id,
+      title: sim.title,
+      breaks: after.paths.filter((p) => !p.ok && okBefore.has(key(p))),
+      newIssues: lintSimulation(next).filter((i) => !lintBefore.has(i)),
+      checked: after.paths.length,
+    };
+  });
+}

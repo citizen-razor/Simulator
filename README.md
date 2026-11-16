@@ -127,6 +127,30 @@ targets, each scenario's persona and scheme choices, and table settings.
 - The **⚠ issues** button lists broken references, such as a step pointing at a deleted control.
 - Save with the button or Ctrl+S. If you try to leave with unsaved changes, you'll be asked first.
 
+### Tools: one system, many simulations
+
+Every simulation is built on a **tool** from the Tool library (Libraries → **Tools**). The
+tool is the system itself: its screens, controls, rules and variables. The simulation adds the
+practice: scenarios, grading, personas, random data and tags. Many simulations can share one tool.
+
+- **Updating a tool updates every simulation that uses it.** Edit a tool from the Tools tab
+  (**Edit screens**), or edit the screens of any simulation that uses it (the editor says which
+  tool its screens come from and how many simulations share it).
+- **Impact check before saving:** when the screens, controls or variables change, every scenario
+  in every simulation on the tool is played through with the change. You see which simulations
+  are affected and anything that would stop working (for example, a step whose button you
+  removed), then **Save for all** or **Go back**. Past attempts keep their scores and audit trails.
+  If someone else saved the tool while you were editing, your save is refused instead of
+  overwriting theirs; reload and redo your change.
+- **Builders and Admin-Builders** can create and edit tools. AI generation creates a new tool;
+  **Create** also lets you start a simulation on an existing tool, and the Tools tab has
+  **+ Simulation on this tool**.
+- **Merging copies:** simulations made before the Tool library each got their own tool. If several
+  tools are the same system (the Tools tab flags tools with the same name), use **Move simulations
+  here…**: it plays the simulation's scenarios on the target tool first and shows anything that
+  wouldn't work, then moves it. Delete a tool once nothing uses it.
+- An imported simulation always gets a new tool; it never writes over one here.
+
 ### Libraries: topics, tags and grading
 
 The **Libraries** page holds shared lists that every simulation can use. Editing them needs
@@ -440,6 +464,8 @@ shared/leaderboard.ts leaderboard ranking
 shared/analytics.ts   course performance for builders (aggregate only)
 shared/breakdown.ts   an attempt's score as a step-by-step ledger of points gained and lost
 shared/conversation.ts AI-played customers: prompts, persona details, conversation criteria
+shared/tools.ts       the Tool library: tools, and splitting/composing simulations
+shared/health.ts      Quality checks: auto-played paths, warning signs, tool impact
 server/conversation.ts customer replies and conversation judging (Claude calls)
 samples/              the built-in Helpdesk sample
 tests/                engine and AI-conversion tests

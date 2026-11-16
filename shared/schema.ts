@@ -214,6 +214,16 @@ export const SimulationSchema = z.object({
   id,
   title: z.string().min(1),
   description: z.string().default(""),
+  /**
+   * The tool (shared/tools.ts) whose screens, controls and variables this simulation uses.
+   * Stored simulations keep only this id; startScreenId, variables and screens below are
+   * filled in from the tool when the simulation is loaded, so one change to a tool reaches
+   * every simulation that uses it. Missing on a brand-new simulation: saving creates its tool.
+   */
+  toolId: z.string().optional(),
+  /** The tool's name and version when loaded (for the editor; not stored with the simulation). */
+  toolName: z.string().optional(),
+  toolVersion: z.number().int().optional(),
   startScreenId: z.string(),
   variables: z.array(VariableSchema).default([]),
   screens: z.array(ScreenSchema).min(1),

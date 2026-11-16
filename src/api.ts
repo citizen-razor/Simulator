@@ -2,7 +2,8 @@
 import type { Assignment } from "../shared/assignments";
 import type { Role, User } from "../shared/people";
 import type { SimulationAnalysis, Stats } from "../shared/analytics";
-import type { Health } from "../shared/health";
+import type { Health, ImpactRow, PathCheck } from "../shared/health";
+import type { Tool } from "../shared/tools";
 
 export interface DirectoryPerson {
   id: string;
@@ -40,10 +41,23 @@ export interface PerformanceRow {
 /** An attempt as reviewers see it: "Learner A" etc.; the name only for Admin-Builders. */
 export type ReviewAttempt = Attempt & { learner: string; name?: string };
 
+export interface ToolSummary {
+  id: string;
+  name: string;
+  description: string;
+  screens: number;
+  cover: string | null;
+  version: number;
+  updatedAt: string | null;
+  usedBy: { id: string; title: string }[];
+}
+
 export interface SimSummary {
   id: string;
   title: string;
   description: string;
+  toolId: string;
+  toolName: string;
   screens: number;
   scenarios: number;
   cover: string | null;
@@ -129,6 +143,16 @@ export const api = {
   simQuality: (id: string) => request<{ health: Health; attempts: ReviewAttempt[]; total: number }>("GET", `/api/quality/${encodeURIComponent(id)}`),
   reviewMark: (attemptId: string, criterionId: string, met: boolean, note: string) =>
     request<ReviewAttempt>("POST", `/api/attempts/${encodeURIComponent(attemptId)}/review`, { criterionId, met, note }),
+  tools: () => request<ToolSummary[]>("GET", "/api/tools"),
+  getTool: (id: string) => request<Tool>("GET", `/api/tools/${encodeURIComponent(id)}`),
+  createTool: (tool: Pick<Tool, "name" | "description" | "startScreenId" | "screens" | "variables">) => request<Tool>("POST", "/api/tools", tool),
+  saveTool: (tool: Partial<Tool> & { id: string }) => request<Tool>("PUT", `/api/tools/${encodeURIComponent(tool.id)}`, tool),
+  deleteTool: (id: string) => request<void>("DELETE", `/api/tools/${encodeURIComponent(id)}`),
+  toolImpact: (id: string, parts: Pick<Tool, "startScreenId" | "screens" | "variables">) =>
+    request<{ tool: { id: string; name: string; version: number }; rows: ImpactRow[] }>("POST", `/api/tools/${encodeURIComponent(id)}/impact`, parts),
+  newSimulationOnTool: (toolId: string, title: string) => request<Simulation>("POST", `/api/tools/${encodeURIComponent(toolId)}/simulations`, { title }),
+  moveToTool: (simId: string, toolId: string, apply = false) =>
+    request<{ paths: PathCheck[]; issues: string[]; simulation?: Simulation }>("POST", `/api/simulations/${encodeURIComponent(simId)}/tool`, { toolId, apply }),
   taxonomy: () => request<Taxonomy>("GET", "/api/library/taxonomy"),
   saveTaxonomy: (t: Taxonomy) => request<Taxonomy>("PUT", "/api/library/taxonomy", t),
   grading: () => request<GradingLibrary>("GET", "/api/library/grading"),

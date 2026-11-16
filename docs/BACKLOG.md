@@ -11,6 +11,10 @@ Nothing right now.
 
 ## To do
 
+- ⬜ **Renames across a shared tool**: renaming a control or variable id updates the scenarios of
+  the simulation being edited; others using the tool show up in the impact check and need fixing.
+  Could update every simulation's scenarios automatically.
+
 - ⬜ **AI judgement spot-check rate**: a running "how often reviewers agree with the AI" figure
   per criterion (corrections already feed a warning on the Quality page).
 
@@ -129,6 +133,13 @@ Nothing right now.
   unset grading checks; AI customers without a persona) and warning signs from results;
   anonymised review of attempts ("Learner A"), with corrections to AI-judged marks (note
   required, learner sees it, AI's original and history kept)
+- ✅ Tool library: each system simulated is a tool (screens, controls, rules, variables) that
+  many simulations share; every simulation uses one. Builders create and edit tools; a change
+  updates every simulation using it, after an impact check (every scenario auto-played with the
+  change, newly broken ones listed; save anyway or go back; edits made at the same time are
+  refused instead of overwritten). Existing simulations were converted (one tool each); copies can
+  be merged by moving simulations onto one tool after a check. New simulations can start on an
+  existing tool; imports always get a new tool
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

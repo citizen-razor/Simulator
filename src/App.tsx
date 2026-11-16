@@ -40,6 +40,7 @@ export default function App() {
     progress: true, // the page itself limits you to who you may see
     new: auth.isBuilder,
     edit: auth.isBuilder,
+    tool: auth.isBuilder,
     performance: auth.isBuilder,
     quality: auth.isBuilder,
     assignments: canSeeOthers,
@@ -47,7 +48,7 @@ export default function App() {
     libraries: auth.isBuilder, // Builders view; only Admin-Builders edit
     people: auth.isAdmin,
   };
-  const full = page === "play" || page === "edit";
+  const full = page === "play" || page === "edit" || page === "tool";
   const nav = (href: string, label: string, key: string) => (
     <a href={href} className={page === key ? "active" : ""}>{label}</a>
   );
@@ -85,6 +86,8 @@ export default function App() {
           <Create />
         ) : page === "edit" && id ? (
           <Editor key={id} id={id} />
+        ) : page === "tool" && id ? (
+          <Editor key={`tool-${id}`} id={id} toolId={id} />
         ) : page === "play" && id ? (
           <Player key={`${id}?${route.query.toString()}`} id={id} query={route.query} />
         ) : page === "my" ? (

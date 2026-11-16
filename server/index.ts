@@ -65,6 +65,12 @@ import {
   savePersona,
   deletePersona,
   personaUsage,
+  getTool,
+  listTools,
+  saveTool,
+  deleteTool,
+  simulationsUsingTool,
+  setSimulationTool,
 } from "./storage";
 import { buildBundle, exportFileName, importBundle, ImportError } from "./transfer";
 import {
@@ -89,7 +95,9 @@ import { withUserIds, mainBoard, scenarioBoard } from "../shared/leaderboard";
 import { reportingTree } from "../shared/people";
 import { sameName } from "../shared/assignments";
 import { finalScore, reviewAiMark } from "../shared/grading";
-import { checkSimulation } from "../shared/health";
+import { checkSimulation, toolImpact } from "../shared/health";
+import { ToolSchema, toolParts } from "../shared/tools";
+import { lintSimulation } from "../shared/engine";
 import { DEFAULT_SCHEME_ID } from "../shared/library";
 import { analyzeSimulation, inDateRange, MIN_TEAM_LEARNERS, stats, teamAttempts } from "../shared/analytics";
 import type { Attempt } from "../shared/schema";
@@ -463,6 +471,113 @@ function reviewView(r: AuthedRequest, attempts: Attempt[]) {
     };
   });
 }
+
+// ------------------------------------------------------------------ tool library (shared/tools.ts)
+
+/** Every tool, with the simulations that use it. Everyone who builds can see and edit tools. */
+app.get(
+  "/api/tools",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const [tools, sims] = await Promise.all([listTools(), listSimulations()]);
+    res.json(
+      tools.map((t) => ({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        screens: t.screens.length,
+        cover: t.screens.find((s) => s.imageAssetId)?.imageAssetId ?? null,
+        version: t.version,
+        updatedAt: t.updatedAt ?? null,
+        usedBy: sims.filter((s) => s.toolId === t.id).map((s) => ({ id: s.id, title: s.title })),
+      })),
+    );
+  }),
+);
+
+app.get(
+  "/api/tools/:id",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    res.json(await getTool(param(req, "id")));
+  }),
+);
+
+/** Create a tool (POST) or save one (PUT, with the version it was loaded at). */
+app.post(
+  "/api/tools",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    res.status(201).json(await saveTool({ ...req.body, id: newId("tool"), version: undefined }));
+  }),
+);
+app.put(
+  "/api/tools/:id",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const id = param(req, "id");
+    const current = await getTool(id);
+    const expect = typeof req.body?.version === "number" ? req.body.version : undefined;
+    res.json(await saveTool({ ...current, ...req.body, id }, expect));
+  }),
+);
+app.delete(
+  "/api/tools/:id",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    await deleteTool(param(req, "id"));
+    res.status(204).end();
+  }),
+);
+
+/** Before saving a tool change: what would it break in each simulation that uses the tool? */
+app.post(
+  "/api/tools/:id/impact",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const id = param(req, "id");
+    const tool = await getTool(id);
+    const proposed = ToolSchema.pick({ startScreenId: true, variables: true, screens: true }).parse(req.body);
+    const users = await simulationsUsingTool(id);
+    const [grading, personas] = await Promise.all([readGrading(), readPersonas()]);
+    const sims = await Promise.all(users.map((u) => getSimulation(u.id)));
+    res.json({ tool: { id: tool.id, name: tool.name, version: tool.version }, rows: toolImpact(sims, proposed, grading.schemes, personas) });
+  }),
+);
+
+/** A new simulation (no scenarios yet) on an existing tool. */
+app.post(
+  "/api/tools/:id/simulations",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const tool = await getTool(param(req, "id"));
+    const title = String(req.body?.title ?? "").trim().slice(0, 200) || `${tool.name} practice`;
+    const sim = await saveSimulation({ id: newId(), title, description: "", toolId: tool.id, toolVersion: tool.version, ...toolParts(tool), scenarios: [] });
+    res.status(201).json(sim);
+  }),
+);
+
+/**
+ * Move a simulation onto another tool (e.g. to merge copies). Without `apply`, only checks:
+ * each scenario path is auto-played on the target tool and the results are returned.
+ */
+app.post(
+  "/api/simulations/:id/tool",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const sim = await getSimulation(param(req, "id"));
+    const target = await getTool(String(req.body?.toolId ?? ""));
+    const [grading, personas] = await Promise.all([readGrading(), readPersonas()]);
+    const moved = { ...sim, ...toolParts(target), toolId: target.id };
+    const health = checkSimulation(moved, grading.schemes, personas);
+    const issues = lintSimulation(moved);
+    if (req.body?.apply === true) {
+      const saved = await setSimulationTool(sim.id, target.id);
+      return void res.json({ simulation: saved, paths: health.paths, issues });
+    }
+    res.json({ paths: health.paths, issues });
+  }),
+);
 
 /** Health of every simulation (Builders): status and counts, for the Quality list. */
 app.get(

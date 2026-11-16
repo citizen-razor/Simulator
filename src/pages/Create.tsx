@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Simulation } from "../../shared/schema";
-import { api, streamAi, type AiProgress, type AiResult } from "../api";
+import { api, streamAi, type AiProgress, type AiResult, type ToolSummary } from "../api";
 import { alignScreens, applyRects } from "../lib/align";
 import { prepareFile, type Prepared, type PreparedImage } from "../lib/media";
 import { navigate } from "../router";
@@ -165,8 +165,10 @@ export default function Create() {
       <h1>Create a simulation</h1>
       <p className="muted">
         Add screenshots, screen recordings, source code or HTML, and procedure documents. The AI drafts screens,
-        clickable controls, state and training scenarios. You then refine everything in the editor.
+        clickable controls, state and training scenarios. You then refine everything in the editor. The screens become a
+        new tool in the Tool library, which other simulations can share.
       </p>
+      <FromExistingTool />
 
       <label className="field">
         <span>Title</span>
@@ -277,5 +279,40 @@ export default function Create() {
         </p>
       )}
     </div>
+  );
+}
+
+/** Already have the system in the Tool library? Start a simulation on it instead of building screens again. */
+function FromExistingTool() {
+  const [tools, setTools] = useState<ToolSummary[]>([]);
+  const [toolId, setToolId] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api.tools().then(setTools).catch(() => undefined);
+  }, []);
+  if (!tools.length) return null;
+  const start = async () => {
+    const t = tools.find((x) => x.id === toolId);
+    if (!t) return;
+    try {
+      const sim = await api.newSimulationOnTool(t.id, `${t.name} practice`);
+      navigate(`/edit/${sim.id}`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  return (
+    <section className="panel from-tool">
+      <b>Already in the Tool library?</b>
+      <p className="muted small">Start a simulation on an existing tool, then write its scenarios (or ask the AI to) in the editor.</p>
+      <div className="row">
+        <select value={toolId} onChange={(e) => setToolId(e.target.value)} aria-label="Tool">
+          <option value="">Choose a tool…</option>
+          {tools.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.screens} screen{t.screens === 1 ? "" : "s"})</option>)}
+        </select>
+        <button className="btn" disabled={!toolId} onClick={start}>Start on this tool</button>
+      </div>
+      {error && <p className="text-error small">{error}</p>}
+    </section>
   );
 }
