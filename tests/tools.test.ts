@@ -38,3 +38,48 @@ describe("tools", () => {
     expect(toolImpact([sim], toolParts(sim), [STANDARD_SCHEME], noPersonas)[0]).toMatchObject({ breaks: [], newIssues: [] });
   });
 });
+
+describe("renames across a shared tool", () => {
+  it("combines chains and drops renames that were undone", async () => {
+    const { recordRename } = await import("../shared/refactor");
+    let list = recordRename([], { kind: "element", from: "a", to: "b" });
+    list = recordRename(list, { kind: "element", from: "b", to: "c" });
+    expect(list).toEqual([{ kind: "element", from: "a", to: "c" }]);
+    expect(recordRename(list, { kind: "element", from: "c", to: "a" })).toEqual([]);
+    expect(recordRename(list, { kind: "screen", from: "b", to: "x" })).toHaveLength(2); // different kind
+  });
+
+  it("carries a tool's renames into another simulation's scenarios, grading and AI customer", async () => {
+    const { applyRenames, effectiveRenames, renameElement, renameScreen, renameVariable } = await import("../shared/refactor");
+    // Simulation B uses the same tool as the one being edited.
+    const b = structuredClone(sim);
+    b.grading.bindings = [{ itemId: "x", screenId: "ticket" }, { itemId: "y", conditions: [{ var: "t1042_status", op: "eq", value: "Resolved" }] }];
+    b.scenarios[0].conversation = { enabled: true, channel: "chat", role: "customer", brief: "Your ticket is {{t1042_status}}.", opening: "", criteria: [{ id: "c", label: "Said it's {{t1042_status}}", weight: 1 }], weight: 30 };
+    // The builder renames things while editing simulation A (same tool).
+    const a = structuredClone(sim);
+    renameElement(a, "tk-save", "ticket-save");
+    renameScreen(a, "ticket", "ticket-detail");
+    renameVariable(a, "t1042_status", "printer_status");
+    const renames = effectiveRenames(
+      [
+        { kind: "element", from: "tk-save", to: "ticket-save" },
+        { kind: "screen", from: "ticket", to: "ticket-detail" },
+        { kind: "variable", from: "t1042_status", to: "printer_status" },
+        { kind: "element", from: "gone", to: "nowhere" }, // not in the new tool: ignored
+      ],
+      a,
+    );
+    expect(renames).toHaveLength(3);
+    const out = applyRenames(b, renames);
+    const steps = out.scenarios.flatMap((s) => s.steps);
+    expect(steps.some((s) => s.elementId === "ticket-save")).toBe(true);
+    expect(steps.some((s) => s.elementId === "tk-save")).toBe(false);
+    expect(out.grading.bindings).toEqual([{ itemId: "x", screenId: "ticket-detail" }, { itemId: "y", conditions: [{ var: "printer_status", op: "eq", value: "Resolved" }] }]);
+    expect(out.scenarios[0].conversation).toMatchObject({ brief: "Your ticket is {{printer_status}}.", criteria: [{ label: "Said it's {{printer_status}}" }] });
+    expect(JSON.stringify(out.scenarios)).not.toMatch(/t1042_status/);
+    // With the renames, the impact check sees nothing broken in B.
+    expect(toolImpact([b], toolParts(a), [STANDARD_SCHEME], noPersonas, renames)[0]).toMatchObject({ breaks: [], newIssues: [] });
+    // Without them, B's scenarios would break.
+    expect(toolImpact([b], toolParts(a), [STANDARD_SCHEME], noPersonas)[0].breaks.length).toBeGreaterThan(0);
+  });
+});

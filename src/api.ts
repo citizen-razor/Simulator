@@ -4,6 +4,7 @@ import type { Role, User } from "../shared/people";
 import type { SimulationAnalysis, Stats } from "../shared/analytics";
 import type { Health, ImpactRow, PathCheck } from "../shared/health";
 import type { Tool } from "../shared/tools";
+import type { Rename } from "../shared/refactor";
 
 export interface DirectoryPerson {
   id: string;
@@ -104,7 +105,8 @@ export const api = {
   list: () => request<SimSummary[]>("GET", "/api/simulations"),
   get: (id: string) => request<Simulation>("GET", `/api/simulations/${id}`),
   create: (sim: Omit<Simulation, "id"> & { id?: string }) => request<Simulation>("POST", "/api/simulations", { ...sim, id: "new" }),
-  save: (sim: Simulation) => request<Simulation>("PUT", `/api/simulations/${sim.id}`, sim),
+  /** `renames`: tool renames made since loading, carried into every simulation on the tool. */
+  save: (sim: Simulation, renames: Rename[] = []) => request<Simulation>("PUT", `/api/simulations/${sim.id}`, { ...sim, renames }),
   remove: (id: string) => request<void>("DELETE", `/api/simulations/${id}`),
   uploadAsset: (mediaType: string, data: string) => request<{ assetId: string }>("POST", "/api/assets", { mediaType, data }),
   attempts: (simulationId?: string) =>
@@ -146,10 +148,10 @@ export const api = {
   tools: () => request<ToolSummary[]>("GET", "/api/tools"),
   getTool: (id: string) => request<Tool>("GET", `/api/tools/${encodeURIComponent(id)}`),
   createTool: (tool: Pick<Tool, "name" | "description" | "startScreenId" | "screens" | "variables">) => request<Tool>("POST", "/api/tools", tool),
-  saveTool: (tool: Partial<Tool> & { id: string }) => request<Tool>("PUT", `/api/tools/${encodeURIComponent(tool.id)}`, tool),
+  saveTool: (tool: Partial<Tool> & { id: string; renames?: Rename[] }) => request<Tool>("PUT", `/api/tools/${encodeURIComponent(tool.id)}`, tool),
   deleteTool: (id: string) => request<void>("DELETE", `/api/tools/${encodeURIComponent(id)}`),
-  toolImpact: (id: string, parts: Pick<Tool, "startScreenId" | "screens" | "variables">) =>
-    request<{ tool: { id: string; name: string; version: number }; rows: ImpactRow[] }>("POST", `/api/tools/${encodeURIComponent(id)}/impact`, parts),
+  toolImpact: (id: string, parts: Pick<Tool, "startScreenId" | "screens" | "variables">, renames: Rename[] = []) =>
+    request<{ tool: { id: string; name: string; version: number }; rows: ImpactRow[] }>("POST", `/api/tools/${encodeURIComponent(id)}/impact`, { ...parts, renames }),
   newSimulationOnTool: (toolId: string, title: string) => request<Simulation>("POST", `/api/tools/${encodeURIComponent(toolId)}/simulations`, { title }),
   moveToTool: (simId: string, toolId: string, apply = false) =>
     request<{ paths: PathCheck[]; issues: string[]; simulation?: Simulation }>("POST", `/api/simulations/${encodeURIComponent(simId)}/tool`, { toolId, apply }),

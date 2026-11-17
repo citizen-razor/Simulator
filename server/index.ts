@@ -71,6 +71,7 @@ import {
   deleteTool,
   simulationsUsingTool,
   setSimulationTool,
+  saveToolEverywhere,
 } from "./storage";
 import { buildBundle, exportFileName, importBundle, ImportError } from "./transfer";
 import {
@@ -219,7 +220,8 @@ app.put(
     requirePermission(req, "simulations.build");
     const id = param(req, "id");
     await getSimulation(id); // 404 if missing
-    res.json(await saveSimulation({ ...req.body, id }));
+    // Renames made to the tool's controls, screens and variables go to every simulation on it.
+    res.json(await saveSimulation({ ...req.body, id }, renamesParam(req.body?.renames)));
   }),
 );
 
@@ -474,6 +476,10 @@ function reviewView(r: AuthedRequest, attempts: Attempt[]) {
 
 // ------------------------------------------------------------------ tool library (shared/tools.ts)
 
+const RenamesSchema = z.array(z.object({ kind: z.enum(["element", "screen", "variable"]), from: z.string().max(100), to: z.string().max(100) })).max(500);
+/** Renames sent with a save or impact check (anything malformed is ignored). */
+const renamesParam = (v: unknown) => RenamesSchema.safeParse(v ?? []).data ?? [];
+
 /** Every tool, with the simulations that use it. Everyone who builds can see and edit tools. */
 app.get(
   "/api/tools",
@@ -518,7 +524,7 @@ app.put(
     const id = param(req, "id");
     const current = await getTool(id);
     const expect = typeof req.body?.version === "number" ? req.body.version : undefined;
-    res.json(await saveTool({ ...current, ...req.body, id }, expect));
+    res.json(await saveToolEverywhere({ ...current, ...req.body, id }, { expectVersion: expect, renames: renamesParam(req.body?.renames) }));
   }),
 );
 app.delete(
@@ -541,7 +547,7 @@ app.post(
     const users = await simulationsUsingTool(id);
     const [grading, personas] = await Promise.all([readGrading(), readPersonas()]);
     const sims = await Promise.all(users.map((u) => getSimulation(u.id)));
-    res.json({ tool: { id: tool.id, name: tool.name, version: tool.version }, rows: toolImpact(sims, proposed, grading.schemes, personas) });
+    res.json({ tool: { id: tool.id, name: tool.name, version: tool.version }, rows: toolImpact(sims, proposed, grading.schemes, personas, renamesParam(req.body?.renames)) });
   }),
 );
 

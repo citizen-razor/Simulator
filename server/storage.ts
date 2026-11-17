@@ -31,6 +31,7 @@ import {
   type PersonaTemplate,
 } from "../shared/personas";
 import { ASSET_ID_PATTERN, AttemptSchema, ID_PATTERN, SimulationSchema, type Attempt, type Simulation } from "../shared/schema";
+import { applyRenames, effectiveRenames, type Rename } from "../shared/refactor";
 import { composeSimulation, sameToolParts, splitSimulation, StoredSimulationSchema, ToolSchema, toolParts, type StoredSimulation, type Tool } from "../shared/tools";
 
 export const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
@@ -141,6 +142,26 @@ export async function saveTool(input: unknown, expectVersion?: number): Promise<
   return saved;
 }
 
+/**
+ * Save a change to a shared tool and carry its renames into every other simulation that uses
+ * it: each is loaded with the tool as it was, the renames are applied to its scenarios, grading
+ * checks and AI customer, and it's saved with the new tool. `exceptSimId` is the simulation
+ * being saved by the caller (it already has the renames).
+ */
+export async function saveToolEverywhere(next: unknown, opts: { expectVersion?: number; renames?: Rename[]; exceptSimId?: string } = {}): Promise<Tool> {
+  const tool = ToolSchema.parse(next);
+  const renames = effectiveRenames(opts.renames ?? [], tool);
+  const others = renames.length ? (await simulationsUsingTool(tool.id)).filter((u) => u.id !== opts.exceptSimId) : [];
+  const updated = await Promise.all(others.map((u) => getSimulation(u.id).then((s) => applyRenames(s, renames))));
+  const saved = await saveTool(tool, opts.expectVersion);
+  const now = new Date().toISOString();
+  for (const s of updated) {
+    const { stored } = splitSimulation(s);
+    await writeAtomic(simPath(s.id), JSON.stringify(StoredSimulationSchema.parse({ ...stored, toolId: saved.id, updatedAt: now }), null, 2));
+  }
+  return saved;
+}
+
 export async function deleteTool(id: string) {
   const users = await simulationsUsingTool(id);
   if (users.length) throw new HttpError(409, `This tool is used by ${users.length} simulation${users.length === 1 ? "" : "s"}. Move or delete them first.`);
@@ -207,13 +228,13 @@ export async function getSimulation(id: string): Promise<Simulation> {
  * tool is updated (for every simulation that uses it), unless someone else changed the tool
  * since this simulation was loaded (toolVersion). A simulation without a tool gets a new one.
  */
-export async function saveSimulation(input: unknown): Promise<Simulation> {
+export async function saveSimulation(input: unknown, renames: Rename[] = []): Promise<Simulation> {
   const sim = SimulationSchema.parse(input);
   const now = new Date().toISOString();
   const { stored, parts } = splitSimulation(sim);
   let tool = stored.toolId ? await getTool(stored.toolId).catch(() => null) : null;
   if (!tool) tool = await saveTool({ id: newId("tool"), name: sim.title, description: sim.description, ...parts });
-  else if (!sameToolParts(tool, parts)) tool = await saveTool({ ...tool, ...parts }, sim.toolVersion);
+  else if (!sameToolParts(tool, parts)) tool = await saveToolEverywhere({ ...tool, ...parts }, { expectVersion: sim.toolVersion, renames, exceptSimId: sim.id });
   const out = StoredSimulationSchema.parse({ ...stored, toolId: tool.id, createdAt: stored.createdAt ?? now, updatedAt: now });
   await writeAtomic(simPath(out.id), JSON.stringify(out, null, 2));
   return composeSimulation(out, tool);

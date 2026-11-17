@@ -142,6 +142,10 @@ practice: scenarios, grading, personas, random data and tags. Many simulations c
   removed), then **Save for all** or **Go back**. Past attempts keep their scores and audit trails.
   If someone else saved the tool while you were editing, your save is refused instead of
   overwriting theirs; reload and redo your change.
+- **Renames follow everywhere:** renaming a control, screen or variable (its id) updates every
+  simulation on the tool when you save: their scenario steps, grading checks and AI customer
+  text use the new name. The save dialog lists the renames. (Changes made by "Ask AI to change
+  it" aren't tracked as renames; if it renames something, the impact check shows what to fix.)
 - **Builders and Admin-Builders** can create and edit tools. AI generation creates a new tool;
   **Create** also lets you start a simulation on an existing tool, and the Tools tab has
   **+ Simulation on this tool**.

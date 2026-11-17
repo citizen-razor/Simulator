@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { lintSimulation, newId } from "../../shared/engine";
-import { duplicateElement, duplicateScreen, moveScreen, renameElement, renameScreen, renameVariable } from "../../shared/refactor";
+import { duplicateElement, duplicateScreen, effectiveRenames, moveScreen, recordRename, renameElement, renameScreen, renameVariable, type Rename } from "../../shared/refactor";
 import { ElementKinds, FIELD_KINDS, SimulationSchema, type ElementKind, type Rect, type SimElement, type Simulation } from "../../shared/schema";
 import { sameToolParts, toolParts } from "../../shared/tools";
 import type { ImpactRow } from "../../shared/health";
@@ -67,6 +67,14 @@ export default function Editor({ id, toolId }: { id: string; toolId?: string }) 
   const undo = useRef<{ stack: Simulation[]; lastKey: string; lastAt: number }>({ stack: [], lastKey: "", lastAt: 0 });
   /** Simulations on this tool (to say where screen changes go). */
   const [toolUsers, setToolUsers] = useState<{ id: string; title: string }[] | null>(null);
+  /**
+   * Renames of the tool's controls, screens and variables since the last save. They're sent with
+   * the save so every other simulation on the tool follows them (shared/refactor.ts).
+   */
+  const renames = useRef<Rename[]>([]);
+  const noteRename = (r: Rename) => {
+    renames.current = recordRename(renames.current, r);
+  };
   /** Shown before saving a tool change: what it affects. */
   const [impact, setImpact] = useState<{ rows: ImpactRow[]; toolName: string } | null>(null);
 
@@ -147,11 +155,12 @@ export default function Editor({ id, toolId }: { id: string; toolId?: string }) 
     try {
       let saved: Simulation;
       if (toolMode) {
-        const t = await api.saveTool({ id: sim.id, name: sim.title, description: sim.description, ...toolParts(sim), version: sim.toolVersion });
+        const t = await api.saveTool({ id: sim.id, name: sim.title, description: sim.description, ...toolParts(sim), version: sim.toolVersion, renames: renames.current });
         saved = { ...sim, toolName: t.name, toolVersion: t.version };
       } else {
-        saved = await api.save(sim);
+        saved = await api.save(sim, renames.current);
       }
+      renames.current = [];
       setSim(saved);
       setSavedJson(JSON.stringify(saved));
       return true;
@@ -174,7 +183,7 @@ export default function Editor({ id, toolId }: { id: string; toolId?: string }) 
     setSaving(true);
     setError("");
     try {
-      const r = await api.toolImpact(sim.toolId, toolParts(sim));
+      const r = await api.toolImpact(sim.toolId, toolParts(sim), renames.current);
       const others = r.rows.filter((x) => x.simulationId !== sim.id);
       const breaks = r.rows.some((x) => x.breaks.length || x.newIssues.length);
       if (!others.length && !breaks) return await commit();
@@ -427,8 +436,10 @@ export default function Editor({ id, toolId }: { id: string; toolId?: string }) 
           onDuplicate={duplicateSelected}
           onCopy={copySelected}
           onRename={(next) => {
-            const out = change((d) => renameElement(d, selectedEl.id, next));
+            const from = selectedEl.id;
+            const out = change((d) => renameElement(d, from, next));
             if (out instanceof Error) return out.message;
+            noteRename({ kind: "element", from, to: next });
             setSel({ kind: "element", id: next });
             return null;
           }}
@@ -466,7 +477,9 @@ export default function Editor({ id, toolId }: { id: string; toolId?: string }) 
           onRandomChange={toolMode ? undefined : (r) => update((d) => { d.randomData = r; }, "random")}
           onRename={(oldName, next) => {
             const out = change((d) => renameVariable(d, oldName, next));
-            return out instanceof Error ? out.message : null;
+            if (out instanceof Error) return out.message;
+            noteRename({ kind: "variable", from: oldName, to: next });
+            return null;
           }}
         />
       );
@@ -494,8 +507,10 @@ export default function Editor({ id, toolId }: { id: string; toolId?: string }) 
         onMakeStart={() => update((d) => { d.startScreenId = screen.id; })}
         onSelectElement={(eid) => setSel({ kind: "element", id: eid })}
         onRename={(next) => {
-          const out = change((d) => renameScreen(d, screen.id, next));
+          const from = screen.id;
+          const out = change((d) => renameScreen(d, from, next));
           if (out instanceof Error) return out.message;
+          noteRename({ kind: "screen", from, to: next });
           setScreenId(next);
           return null;
         }}
@@ -671,6 +686,15 @@ export default function Editor({ id, toolId }: { id: string; toolId?: string }) 
               You changed the tool's screens, controls or variables. This updates {impact.rows.length === 1 ? "the 1 simulation" : `all ${impact.rows.length} simulations`} that use it.
               Every scenario was played through with your changes:
             </p>
+            {effectiveRenames(renames.current, sim).length > 0 && (
+              <p className="small">
+                <b>Renamed:</b>{" "}
+                {effectiveRenames(renames.current, sim).map((r, i) => (
+                  <span key={i}>{i > 0 && ", "}<code>{r.from}</code> → <code>{r.to}</code> ({r.kind === "element" ? "control" : r.kind})</span>
+                ))}
+                . Every simulation's scenarios, grading checks and AI customers are updated to the new names.
+              </p>
+            )}
             <ul className="impact-list">
               {impact.rows.map((r) => (
                 <li key={r.simulationId}>

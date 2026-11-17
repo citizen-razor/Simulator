@@ -11,9 +11,6 @@ Nothing right now.
 
 ## To do
 
-- ⬜ **Renames across a shared tool**: renaming a control or variable id updates the scenarios of
-  the simulation being edited; others using the tool show up in the impact check and need fixing.
-  Could update every simulation's scenarios automatically.
 
 - ⬜ **AI judgement spot-check rate**: a running "how often reviewers agree with the AI" figure
   per criterion (corrections already feed a warning on the Quality page).
@@ -140,6 +137,10 @@ Nothing right now.
   refused instead of overwritten). Existing simulations were converted (one tool each); copies can
   be merged by moving simulations onto one tool after a check. New simulations can start on an
   existing tool; imports always get a new tool
+- ✅ Renames across a shared tool: renaming a control, screen or variable is carried into every
+  simulation on the tool (scenarios, grading checks, AI customers) when you save; the impact check
+  applies them first and lists them. Renames now also update grading targets and the AI
+  customer's text within a simulation
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

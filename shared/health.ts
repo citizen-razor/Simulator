@@ -18,6 +18,7 @@ import { checkCondition, createSession, findElement, interact, interpolate, isFi
 import { activeRubric, gradeSession, resolveScheme, unboundChecks } from "./grading";
 import type { GradingScheme } from "./library";
 import type { PersonaLibrary } from "./personas";
+import { applyRenames, effectiveRenames, type Rename } from "./refactor";
 import { sessionPersonaVariables } from "./personas";
 import { scenarioPaths, type Attempt, type Path, type Scenario, type Simulation, type Step } from "./schema";
 
@@ -219,9 +220,12 @@ export function toolImpact(
   proposed: Pick<Simulation, "startScreenId" | "variables" | "screens">,
   schemes: GradingScheme[],
   personas: PersonaLibrary,
+  renames: Rename[] = [],
 ): ImpactRow[] {
+  // Renames are carried into every simulation on save, so check them with the renames applied.
+  const carried = effectiveRenames(renames, proposed);
   return sims.map((sim) => {
-    const next: Simulation = { ...sim, startScreenId: proposed.startScreenId, variables: proposed.variables, screens: proposed.screens };
+    const next: Simulation = { ...applyRenames(sim, carried), startScreenId: proposed.startScreenId, variables: proposed.variables, screens: proposed.screens };
     const before = checkSimulation(sim, schemes, personas);
     const after = checkSimulation(next, schemes, personas);
     const key = (p: PathCheck) => `${p.scenarioId}/${p.path}`;
