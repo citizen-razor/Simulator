@@ -17,16 +17,19 @@ import {
   type Mode,
   type SessionState,
 } from "../../shared/engine";
-import { MAIN_PATH_ID, scenarioPaths, type Simulation, type SimElement, type Step } from "../../shared/schema";
+import { MAIN_PATH_ID, scenarioPaths, type Simulation, type SimElement, type Step, type Transcript } from "../../shared/schema";
+import { activeConversation, conversationOnly, fill } from "../../shared/conversation";
+import { ConversationPanel } from "../components/ConversationPanel";
 import { api } from "../api";
 import { PlayScreen } from "../components/ScreenView";
 import { navigate } from "../router";
-import { activeRubric, evaluateObjectives, gradeSession, resolveScheme, timeLeft, type GradeResult } from "../../shared/grading";
+import { activeRubric, evaluateObjectives, finalScore as combineScore, gradeSession, resolveScheme, settleUnmarked, timeLeft, type GradeResult } from "../../shared/grading";
 import { STANDARD_SCHEME, type GradingScheme } from "../../shared/library";
 import { sessionPersonaVariables, type PersonaLibrary } from "../../shared/personas";
 import { meetsRequirement, REQUIREMENT_TEXT, type Assignment } from "../../shared/assignments";
 import { useAuth } from "../lib/auth";
 import { PointsFlow, stepTitles } from "../components/PointsFlow";
+import { AuditTrail } from "../components/AuditTrail";
 import { breakdown } from "../../shared/breakdown";
 
 const MODES: { id: Mode; label: string; blurb: string }[] = [
@@ -46,6 +49,7 @@ function formatTime(sec: number) {
 function recordedStep(el: SimElement, value?: string): Step {
   const label = el.label || el.id;
   if (value === undefined) return { id: newId("step"), elementId: el.id, instruction: `Click "${label}".`, expect: "any" };
+  if (el.kind === "table") return { id: newId("step"), elementId: el.id, instruction: `Open ${value} in ${label}.`, expect: "eq", value };
   if (el.kind === "select") return { id: newId("step"), elementId: el.id, instruction: `Set ${label} to "${value}".`, expect: "eq", value };
   if (el.kind === "checkbox") {
     return { id: newId("step"), elementId: el.id, instruction: `${value === "true" ? "Check" : "Uncheck"} "${label}".`, expect: "eq", value };
@@ -64,7 +68,14 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   const [showHotspots, setShowHotspots] = useState(false);
   const [showState, setShowState] = useState(false);
   const [hint, setHint] = useState("");
-  const [summary, setSummary] = useState<null | { completed: boolean; grade: GradeResult; durationSec: number }>(null);
+  const [summary, setSummary] = useState<null | { completed: boolean; grade: GradeResult; durationSec: number; judging?: boolean }>(null);
+  // Conversation with the AI customer (scenarios that have one).
+  const [transcript, setTranscript] = useState<Transcript>([]);
+  const [convBusy, setConvBusy] = useState(false);
+  const [convFailed, setConvFailed] = useState(false);
+  const [customerLeft, setCustomerLeft] = useState(false);
+  const [wrapUp, setWrapUp] = useState(false);
+  const runRef = useRef(0);
   const [schemes, setSchemes] = useState<GradingScheme[]>([STANDARD_SCHEME]);
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [personaLib, setPersonaLib] = useState<PersonaLibrary>({ templates: [], personas: [] });
@@ -74,6 +85,8 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   const auth = useAuth();
   // Attempts are saved under the signed-in account (the server sets this; it's sent for display).
   const trainee = auth.user?.name ?? "";
+  /** Builders' test runs: a live scoring trace, and nothing is saved. */
+  const testMode = query.get("test") === "1" && auth.isBuilder && !recordInto;
   const [, tick] = useState(0);
   const toastId = useRef(0);
 
@@ -101,6 +114,45 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
     return () => clearInterval(t);
   }, [mode, session?.scenarioId, session?.finished]);
 
+  const convScenario = sim && session ? getScenario(sim, session.scenarioId) : null;
+  const conv = mode !== "open" && !recordInto ? activeConversation(convScenario) : null;
+
+  /** Ask the customer for their next message, given the conversation so far. */
+  const askCustomer = (t: Transcript) => {
+    if (!sim || !session || !convScenario) return;
+    const run = session.startedAt;
+    setConvBusy(true);
+    setConvFailed(false);
+    api
+      .conversationReply({ simulationId: sim.id, scenarioId: convScenario.id, transcript: t, vars: session.generated })
+      .then((r) => {
+        if (runRef.current !== run) return; // a newer run started meanwhile
+        setTranscript([...t, { from: "customer", text: r.say }]);
+        if (r.ended) setCustomerLeft(true);
+      })
+      .catch((e) => {
+        if (runRef.current !== run) return;
+        setConvFailed(true);
+        pushToasts([{ tone: "error", text: e.message }]);
+      })
+      .finally(() => runRef.current === run && setConvBusy(false));
+  };
+
+  // Each new run starts a fresh conversation: the customer's opening line, or Claude opens in character.
+  // (In development, React starts the page twice, so you may see two opening requests; the
+  // first run's reply is ignored. The built app makes one.)
+  useEffect(() => {
+    runRef.current = session?.startedAt ?? 0;
+    setTranscript([]);
+    setCustomerLeft(false);
+    setWrapUp(false);
+    setConvFailed(false);
+    setConvBusy(false);
+    if (!conv || !session) return;
+    if (conv.opening.trim()) setTranscript([{ from: "customer", text: fill(conv.opening, session.vars) }]);
+    else askCustomer([]);
+  }, [session?.startedAt, !!conv]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const pushToasts = useCallback((fb: Feedback[]) => {
     if (!fb.length) return;
     const items = fb.map((f) => ({ ...f, id: ++toastId.current }));
@@ -123,12 +175,36 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
   /** A fresh run: new random values, this scenario's personas. */
   const newRun = (scenarioId: string | null) => createSession(sim, scenarioId, Date.now(), undefined, sessionPersonaVariables(sim, scenarioId, personaLib));
 
-  const finish = (s: SessionState, completed: boolean, m: Mode) => {
+  const finish = async (s: SessionState, completed: boolean, m: Mode) => {
     const sc = getScenario(sim, s.scenarioId);
+    const convNow = m !== "open" && !recordInto ? activeConversation(sc) : null;
+    // A conversation-only scenario is complete when the learner ends the conversation.
+    if (convNow && sc && conversationOnly(sc) && completed !== false) {
+      s = { ...s, completed: true, finished: true, finishedAt: s.finishedAt ?? Date.now() };
+      completed = true;
+      setSession(s);
+    }
     const result = scoreSession(sim, s, Date.now(), scheme.points);
-    const grade = gradeSession(sim, s, scheme);
-    setSummary({ completed, grade, durationSec: result.durationSec });
-    if (!sc || m === "open" || recordInto) return;
+    let grade = gradeSession(sim, s, scheme);
+    const toJudge = grade.rubric.some((c) => c.ai);
+    setSummary({ completed, grade, durationSec: result.durationSec, judging: toJudge });
+    if (toJudge && sc) {
+      try {
+        const { results } = await api.conversationJudge({ simulationId: sim.id, scenarioId: sc.id, transcript, vars: s.generated });
+        const rubric = grade.rubric.map((c) => {
+          const r = results.find((x) => x.id === c.id);
+          return r ? { ...c, met: r.met, reason: r.reason } : c;
+        });
+        grade = { ...grade, rubric, ...combineScore({ ...grade, rubric }, completed) };
+      } catch (e) {
+        pushToasts([{ tone: "error", text: `Couldn't check the conversation (${(e as Error).message}). Those criteria are left out of this score.` }]);
+      }
+      // Anything the AI couldn't judge is left out, so the result never waits.
+      const settled = settleUnmarked({ grading: grade, completed, score: grade.score, passed: grade.passed }, { manual: false });
+      grade = { ...settled.grading!, score: settled.score, passed: settled.passed, pendingManual: settled.grading!.rubric.filter((c) => c.met === null).length };
+      setSummary({ completed, grade, durationSec: result.durationSec });
+    }
+    if (!sc || m === "open" || recordInto || testMode) return; // test runs are never saved
     const { score: finalScore, passed, pendingManual: _pending, ...grading } = grade;
     api
       .addAttempt({
@@ -152,6 +228,8 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
         mistakes: s.mistakes,
         troubleSteps: s.troubleSteps,
         penalties: s.penalties,
+        log: s.log,
+        conversation: convNow ? { channel: convNow.channel, customer: s.vars[`${convNow.role}.name`] || "Customer", messages: transcript } : undefined,
         data: Object.keys(s.generated).length ? s.generated : undefined,
         seed: Object.keys(s.generated).length ? s.seed : undefined,
         finishedAt: new Date().toISOString(),
@@ -172,7 +250,17 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
     setSession(r.state);
     pushToasts(r.feedback);
     if (r.completedStep || r.blocked) setHint("");
-    if (r.state.completed && !session.completed) finish(r.state, true, mode);
+    if (r.state.completed && !session.completed) {
+      // With a customer on the line, the learner wraps up and ends the conversation themselves.
+      if (conv) setWrapUp(true);
+      else finish(r.state, true, mode);
+    }
+  };
+
+  const say = (text: string) => {
+    const t: Transcript = [...transcript, { from: "learner", text }];
+    setTranscript(t);
+    if (!customerLeft) askCustomer(t);
   };
 
   const changeMode = (m: Mode) => {
@@ -252,10 +340,31 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
             </select>
           )}
           <button className="btn sm" onClick={() => restart()}>↺ Restart</button>
+          {auth.isBuilder && !recordInto && (
+            <button
+              className={`btn sm ${testMode ? "primary" : "ghost"}`}
+              title={testMode ? "Leave test mode: runs are saved again" : "Test this simulation: see scoring live; runs aren't saved"}
+              onClick={() => {
+                const q = new URLSearchParams(query);
+                if (testMode) q.delete("test");
+                else q.set("test", "1");
+                q.set("mode", mode);
+                if (session.scenarioId) q.set("scenario", session.scenarioId);
+                navigate(`/play/${sim.id}?${q.toString()}`);
+              }}
+            >
+              🧪 {testMode ? "Testing" : "Test"}
+            </button>
+          )}
           {auth.isBuilder && <a className="btn sm ghost" href={`#/edit/${sim.id}`}>Edit</a>}
         </div>
       </div>
 
+      {testMode && (
+        <div className="alert info test-banner small">
+          🧪 <b>Test run.</b> Nothing is saved, so it never counts toward results, performance or leaderboards. The scoring trace shows how each action is judged.
+        </div>
+      )}
       <div className="player-body">
         <div className="stage">
           {mode === "guided" && stepTarget && stepTarget.screen.id !== screen.id && (
@@ -322,8 +431,43 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                       {assignment.requirement !== "complete" && mode === "guided" && " Guided runs are practice; switch to Scenario mode to count."}
                     </p>
                   )}
-                  <GradingInfo scheme={scheme} rubric={activeRubric(sim, scheme)} />
+                  <GradingInfo scheme={scheme} rubric={activeRubric(sim, scheme)} conversation={conv?.criteria ?? []} />
                 </section>
+              )}
+
+              {testMode && judged && scenario && (
+                <section className="panel scoring-trace">
+                  <div className="row">
+                    <h3>Scoring trace</h3>
+                    <span className="spacer" />
+                    <b title="Score if the run ended now">{gradeSession(sim, session, scheme).score}/100 now</b>
+                  </div>
+                  <AuditTrail log={session.log} b={breakdown({ ...score, score: 0, completed: session.completed, errors: session.errors, hintsUsed: session.hintsUsed, grading: gradeSession(sim, session, scheme), penalties: session.penalties })} live />
+                </section>
+              )}
+
+              {conv && (
+                <ConversationPanel
+                  channel={conv.channel}
+                  customer={session.vars[`${conv.role}.name`] || "Customer"}
+                  transcript={transcript}
+                  busy={convBusy}
+                  failed={convFailed}
+                  customerLeft={customerLeft}
+                  wrapUp={wrapUp}
+                  disabled={!!summary}
+                  onSend={say}
+                  onRetry={() => askCustomer(transcript)}
+                  onCoach={
+                    mode === "guided" && scenario
+                      ? () => api.conversationCoach({ simulationId: sim.id, scenarioId: scenario.id, transcript, vars: session.generated })
+                      : undefined
+                  }
+                  onEnd={() => {
+                    if (!session.completed && scenario && !conversationOnly(scenario) && !confirm("The task isn't finished yet. End the run anyway?")) return;
+                    finish(session, session.completed || (!!scenario && conversationOnly(scenario)), mode);
+                  }}
+                />
               )}
 
               {mode === "guided" && scenario && (
@@ -448,6 +592,9 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                 <a href="#/my">My training</a>
               </p>
             )}
+            {summary.judging ? (
+              <p className="muted judging">⏳ Checking your conversation with the customer…</p>
+            ) : (
             <details className="flow-details" open>
               <summary>Where your points came from</summary>
               <PointsFlow
@@ -467,6 +614,14 @@ export default function Player({ id, query }: { id: string; query: URLSearchPara
                 )}
               />
             </details>
+            )}
+            {testMode && (
+              <details className="transcript audit" open>
+                <summary>🧪 Every action and how it was scored ({session.log.length})</summary>
+                <AuditTrail log={session.log} b={breakdown({ ...score, completed: summary.completed, errors: session.errors, hintsUsed: session.hintsUsed, grading: summary.grade, penalties: session.penalties, score: summary.grade.score })} />
+                <p className="muted small">Test run: not saved.</p>
+              </details>
+            )}
             <p className="muted">
               {score.stepsCompleted} of {score.stepsTotal} steps · {session.errors} error{session.errors === 1 ? "" : "s"} · {session.hintsUsed} hint
               {session.hintsUsed === 1 ? "" : "s"} · {formatTime(summary.durationSec)}
@@ -523,7 +678,7 @@ function RecordingPanel({ scenarioTitle, steps, onRemove, onSave, onCancel }: {
 }
 
 /** Tells the trainee up front how this run is graded. */
-function GradingInfo({ scheme, rubric }: { scheme: GradingScheme; rubric: GradingScheme["rubric"] }) {
+function GradingInfo({ scheme, rubric, conversation }: { scheme: GradingScheme; rubric: GradingScheme["rubric"]; conversation: { id: string; label: string }[] }) {
   const p = scheme.points;
   return (
     <details className="grading-info">
@@ -537,6 +692,12 @@ function GradingInfo({ scheme, rubric }: { scheme: GradingScheme; rubric: Gradin
           <li>
             {scheme.rubricWeight > 0 ? `${scheme.rubricWeight}% of the score comes from:` : "Also assessed:"}
             <ul>{rubric.map((c) => <li key={c.id}>{c.label}{c.check.type === "manual" ? " (marked by a trainer afterwards)" : ""}</li>)}</ul>
+          </li>
+        )}
+        {conversation.length > 0 && (
+          <li>
+            In the conversation (judged by AI when you finish):
+            <ul>{conversation.map((c) => <li key={c.id}>{c.label}</li>)}</ul>
           </li>
         )}
         <li>Pass mark {p.passScore}; {p.masteryScore}+ without help counts as mastered.</li>

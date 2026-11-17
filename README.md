@@ -81,6 +81,13 @@ individual simulations (below).
 
 You can also click **Start blank** or **Build manually from N images** to author by hand.
 
+When it generates, Claude also suggests **tags** and a **grading scheme** from your libraries
+(it never invents new ones; Admin-Builders manage those) and, for tasks that involve a
+customer, an **AI customer** for the scenario: channel, situation and criteria. The notes
+after generation list what it suggested; pick which persona plays the customer in Settings.
+"Ask AI to change it" keeps everything Claude doesn't edit: personas, random data, grading
+targets, each scenario's persona and scheme choices, and table settings.
+
 ### The editor
 
 - **Draw** controls by dragging on the screen. Pick the kind first: button, link, hotspot
@@ -120,6 +127,34 @@ You can also click **Start blank** or **Build manually from N images** to author
 - The **⚠ issues** button lists broken references, such as a step pointing at a deleted control.
 - Save with the button or Ctrl+S. If you try to leave with unsaved changes, you'll be asked first.
 
+### Tools: one system, many simulations
+
+Every simulation is built on a **tool** from the Tool library (Libraries → **Tools**). The
+tool is the system itself: its screens, controls, rules and variables. The simulation adds the
+practice: scenarios, grading, personas, random data and tags. Many simulations can share one tool.
+
+- **Updating a tool updates every simulation that uses it.** Edit a tool from the Tools tab
+  (**Edit screens**), or edit the screens of any simulation that uses it (the editor says which
+  tool its screens come from and how many simulations share it).
+- **Impact check before saving:** when the screens, controls or variables change, every scenario
+  in every simulation on the tool is played through with the change. You see which simulations
+  are affected and anything that would stop working (for example, a step whose button you
+  removed), then **Save for all** or **Go back**. Past attempts keep their scores and audit trails.
+  If someone else saved the tool while you were editing, your save is refused instead of
+  overwriting theirs; reload and redo your change.
+- **Renames follow everywhere:** renaming a control, screen or variable (its id) updates every
+  simulation on the tool when you save: their scenario steps, grading checks and AI customer
+  text use the new name. The save dialog lists the renames. (Changes made by "Ask AI to change
+  it" aren't tracked as renames; if it renames something, the impact check shows what to fix.)
+- **Builders and Admin-Builders** can create and edit tools. AI generation creates a new tool;
+  **Create** also lets you start a simulation on an existing tool, and the Tools tab has
+  **+ Simulation on this tool**.
+- **Merging copies:** simulations made before the Tool library each got their own tool. If several
+  tools are the same system (the Tools tab flags tools with the same name), use **Move simulations
+  here…**: it plays the simulation's scenarios on the target tool first and shows anything that
+  wouldn't work, then moves it. Delete a tool once nothing uses it.
+- An imported simulation always gets a new tool; it never writes over one here.
+
 ### Libraries: topics, tags and grading
 
 The **Libraries** page holds shared lists that every simulation can use. Editing them needs
@@ -147,7 +182,10 @@ tags, personas and schemes. Learners and Leaders don't see the page.
     them to simulations and scenarios.
   - Their details then appear on screens as
     `{{customer.name}}`, `{{customer.balance}}` or `{{customer.bills.1.amount}}`. A
-    **table** element shows a whole record table, e.g. `customer.bills`.
+    **table** element shows a whole record table, e.g. `customer.bills`. Set "Clicking a row"
+    to make rows clickable: the clicked row's value is stored (e.g. `{{selected_order}}`, with
+    each column as `{{selected_order.status}}`), the table's rules run (e.g. go to an order
+    screen), and a step can require a particular row.
   - Use invented details only; the editor reminds you, because simulations get exported
     and shared.
 - **Grading schemes:** how attempts are scored.
@@ -188,7 +226,9 @@ not just direct reports. Loops (someone ending up as their own manager) are refu
 set roles and managers, deactivate people (they're signed out at once and can't sign in;
 their history is kept), reset passwords, and **import a CSV** with the columns
 `email, name, manager_email, roles`. Everyone can change their own password under their name
-in the top bar.
+in the top bar. Results saved before sign-in existed, under a typed
+name that matches no one (or several people), appear under **Results saved under typed names**
+on the People page; choose who each name is and their results and assignments move over.
 
 **SCIM (sync from Okta, Microsoft Entra ID, …):** on the People page, turn on SCIM to get a
 bearer token, then point your identity provider's SCIM 2.0 app at `https://<your
@@ -262,9 +302,66 @@ learners, so you can see what to improve. It shows totals and averages only and 
     ones are still awaiting marking;
   - **where unfinished runs stopped**, and which **paths** were taken.
   - Untick **Include Guided runs** to see Scenario mode only.
+- **Team and topic:** filter to a leader's team (everyone in their reporting tree); figures
+  based on fewer than 3 of the team's learners aren't shown, so no one can be singled out. The
+  course list can also be filtered by topic.
+- **Dates and export:** pick a date range (or Last 30 / 90 days) on either page; a course
+  shows a week-by-week table; **Download CSV** saves the figures for a spreadsheet (still
+  totals and averages only).
 
 Attempts saved before this was added didn't record which step each error or hint was on, so they're
 left out of the step-by-step view and counted in everything else.
+
+### AI-played customers
+
+A scenario can have a customer the learner talks to while they work the system, played by
+Claude. Builders set it up in the scenario's **Customer conversation** section:
+- **How they're in touch:** chat, phone call or in person. Learners type for now. The channel
+  sets how the customer talks (chat-style typing, spoken words, or face to face with brief
+  actions such as "[slides a card across the counter]") and how the panel looks. Voice can be
+  added later.
+- **Who:** the persona playing that role in the scenario. The customer knows their own details
+  (the same record the screens show) and shares them only when asked.
+- **The customer's situation:** why they're in touch, how they feel, what they want, and
+  what calms them down. An optional opening line can set their first words.
+- **What good looks like:** criteria such as "Verified identity before sharing account details",
+  each weighted ×1–×5. When the run ends, Claude judges the conversation against each one and
+  gives the learner a one-line reason. These criteria join the rubric (or, if the grading scheme
+  has none, count for the share of the score you set). A scenario with no steps is scored
+  entirely on the conversation.
+
+In Guided and Scenario mode the conversation sits beside the screens. In Guided mode,
+**💡 What should I say?** suggests a next line and why it helps (the coach knows the goal and
+what good looks like, but not the customer's private details). When the steps are done,
+the learner wraps up with the customer and ends the conversation (End chat / Hang up / Finish).
+The transcript is saved with the attempt and shown on My progress and Results. If the AI can't
+judge a conversation, those criteria are left out rather than leaving the result waiting.
+
+### Quality (Builders)
+
+**Quality** shows whether each simulation scores properly. For each simulation:
+- **Automatic checks:** every path of every scenario is played by a "perfect trainee" who does
+  exactly what each step says. It must finish with no errors and full points; if a step's control
+  is on a different screen than the trainee is on, a value is never accepted, or the success
+  checks aren't met, it says which step and why. A perfect run must also meet the automatic
+  rubric criteria (one it misses is usually pointed at the wrong screen or state). It also flags
+  grading checks that aren't set up, broken references, and AI customers without a persona,
+  situation or criteria.
+- **Warning signs from results** (from 5 attempts): a step where half or more lose points, a
+  criterion nobody (or everybody) meets, a scenario few finish, AI marks reviewers often correct.
+- **Review attempts:** open any recent attempt to check its score by hand (points breakdown,
+  audit trail, conversation). Builders see learners as "Learner A, B…"; Admin-Builders also see
+  names. To correct an AI-judged mark, choose **Change** and write why: the score updates at once,
+  the learner sees "Reviewed by a person" with the note, and the AI's original mark and every
+  change are kept.
+
+### Test mode (Builders)
+
+**▶ Test** in the editor (and the scenario's ▶ Guided / ▶ Scenario buttons) opens the Player in
+test mode; builders can also switch it on with **🧪 Test** in the Player. A test run shows a live
+**scoring trace** (each action and its verdict as it happens, with the score so far) and the full
+audit trail at the end. Test runs are never saved, so they don't count toward results,
+performance, leaderboards or assignments.
 
 ### Where your points came from
 
@@ -279,6 +376,11 @@ graded and where to improve. It appears on the end-of-run summary, on **My progr
   show what they're worth.
 
 The lines add up to the score.
+
+Under it, **Every action and how it was scored** is the run's audit trail: each click and entry
+in order, with the time, the screen, what was entered (passwords hidden), and the verdict:
+step done, wrong control, wrong value, hint, or "not the next step" (filling in a later field,
+which is never penalised). Penalties show what they cost, so anyone can check a score by hand.
 
 ### Trainee progress
 
@@ -365,6 +467,10 @@ shared/people.ts      roles, hierarchy, permissions, CSV parsing
 shared/leaderboard.ts leaderboard ranking
 shared/analytics.ts   course performance for builders (aggregate only)
 shared/breakdown.ts   an attempt's score as a step-by-step ledger of points gained and lost
+shared/conversation.ts AI-played customers: prompts, persona details, conversation criteria
+shared/tools.ts       the Tool library: tools, and splitting/composing simulations
+shared/health.ts      Quality checks: auto-played paths, warning signs, tool impact
+server/conversation.ts customer replies and conversation judging (Claude calls)
 samples/              the built-in Helpdesk sample
 tests/                engine and AI-conversion tests
 ```
@@ -411,7 +517,10 @@ Box fine-tuning adds one smaller AI call per screenshot screen (two images in, a
 of boxes out). Generation uses `claude-opus-5-5` by default (set `SIM_MODEL` in `.env` to change it). Cost
 depends on the amount of input (each screenshot is roughly 1,500 tokens) and mostly on the
 size of the simulation written back. Expect well under a few dollars per generation; check
-actual usage in the Claude Console. Playing and editing simulations makes no AI calls.
+actual usage in the Claude Console. Playing and editing simulations makes no AI calls, except
+scenarios with an AI customer: one short call per customer reply (at low effort, for speed) and
+one call to judge the conversation at the end. Each person is limited to 200 customer replies and
+30 judgements an hour.
 
 ## Known limitations and next steps
 

@@ -19,7 +19,7 @@
 import "dotenv/config";
 import express, { type NextFunction, type Request, type Response } from "express";
 import path from "node:path";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import sample from "../samples/helpdesk.json";
 import { SimulationSchema } from "../shared/schema";
 import {
@@ -32,6 +32,7 @@ import {
   MODEL,
   refineSimulation,
   type GenerateResult,
+  type LibraryContext,
   type StoredImage,
 } from "./generate";
 import {
@@ -64,6 +65,13 @@ import {
   savePersona,
   deletePersona,
   personaUsage,
+  getTool,
+  listTools,
+  saveTool,
+  deleteTool,
+  simulationsUsingTool,
+  setSimulationTool,
+  saveToolEverywhere,
 } from "./storage";
 import { buildBundle, exportFileName, importBundle, ImportError } from "./transfer";
 import {
@@ -82,12 +90,28 @@ import {
   type AuthedRequest,
 } from "./auth";
 import { peopleRoutes } from "./people";
+import { conversationRoutes } from "./conversation";
 import { scimRouter } from "./scim";
 import { withUserIds, mainBoard, scenarioBoard } from "../shared/leaderboard";
 import { reportingTree } from "../shared/people";
 import { sameName } from "../shared/assignments";
-import { finalScore } from "../shared/grading";
-import { analyzeSimulation, stats } from "../shared/analytics";
+import { finalScore, reviewAiMark } from "../shared/grading";
+import { checkSimulation, toolImpact } from "../shared/health";
+import { ToolSchema, toolParts } from "../shared/tools";
+import { lintSimulation } from "../shared/engine";
+import { DEFAULT_SCHEME_ID } from "../shared/library";
+import { analyzeSimulation, inDateRange, MIN_TEAM_LEARNERS, stats, teamAttempts } from "../shared/analytics";
+import type { Attempt } from "../shared/schema";
+
+const teamParam = (v: unknown) => (typeof v === "string" && /^[\w-]{1,100}$/.test(v) ? v : undefined);
+/** Attempts within the date range and, if a team (leader id) is given, by that leader's reporting tree. */
+function scoped(r: AuthedRequest, attempts: Attempt[], q: Request["query"], team: string | undefined): Attempt[] {
+  const dated = inDateRange(attempts, dateParam(q.from), dateParam(q.to));
+  return team ? teamAttempts(dated, r.people, team) : dated;
+}
+
+/** A YYYY-MM-DD query parameter, or undefined. */
+const dateParam = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = "127.0.0.1";
@@ -196,7 +220,8 @@ app.put(
     requirePermission(req, "simulations.build");
     const id = param(req, "id");
     await getSimulation(id); // 404 if missing
-    res.json(await saveSimulation({ ...req.body, id }));
+    // Renames made to the tool's controls, screens and variables go to every simulation on it.
+    res.json(await saveSimulation({ ...req.body, id }, renamesParam(req.body?.renames)));
   }),
 );
 
@@ -407,6 +432,189 @@ app.post(
   }),
 );
 
+app.use("/api/conversation", conversationRoutes());
+
+/** Correct an AI-judged mark (Builders and Admin-Builders). A note is required, and the learner sees it. */
+app.post(
+  "/api/attempts/:id/review",
+  route(async (req, res) => {
+    const r = requirePermission(req, "simulations.build");
+    const input = z.object({ criterionId: z.string().max(100), met: z.boolean(), note: z.string().trim().min(1).max(500) }).parse(req.body);
+    const updated = await updateAttempt(param(req, "id"), (a) => {
+      try {
+        return reviewAiMark(a, input.criterionId, input.met, input.note, r.user.id);
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
+    });
+    res.json(reviewView(r, [updated])[0]);
+  }),
+);
+
+/**
+ * Attempts for review. Builders see them anonymised ("Learner A", "B"… in order of each
+ * person's first attempt on this simulation); Admin-Builders also see names.
+ */
+function reviewView(r: AuthedRequest, attempts: Attempt[]) {
+  const named = userCan(r, "people.manage");
+  const key = (a: Attempt) => a.userId ?? `name:${a.trainee.trim().toLowerCase()}`;
+  const order: string[] = [];
+  for (const a of [...attempts].sort((x, y) => x.finishedAt.localeCompare(y.finishedAt))) if (!order.includes(key(a))) order.push(key(a));
+  const label = (i: number) => `Learner ${i < 26 ? String.fromCharCode(65 + i) : `${String.fromCharCode(65 + Math.floor(i / 26) - 1)}${String.fromCharCode(65 + (i % 26))}`}`;
+  return attempts.map(({ userId: _u, trainee, reviews, ...a }) => {
+    void _u;
+    return {
+      ...a,
+      learner: label(order.indexOf(key({ userId: _u, trainee } as Attempt))),
+      name: named ? trainee : undefined,
+      // Reviewers stay anonymous to each other and to learners: only that a person reviewed it.
+      reviews: (reviews ?? []).map(({ by: _b, ...x }) => (void _b, x)),
+      trainee: "",
+    };
+  });
+}
+
+// ------------------------------------------------------------------ tool library (shared/tools.ts)
+
+const RenamesSchema = z.array(z.object({ kind: z.enum(["element", "screen", "variable"]), from: z.string().max(100), to: z.string().max(100) })).max(500);
+/** Renames sent with a save or impact check (anything malformed is ignored). */
+const renamesParam = (v: unknown) => RenamesSchema.safeParse(v ?? []).data ?? [];
+
+/** Every tool, with the simulations that use it. Everyone who builds can see and edit tools. */
+app.get(
+  "/api/tools",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const [tools, sims] = await Promise.all([listTools(), listSimulations()]);
+    res.json(
+      tools.map((t) => ({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        screens: t.screens.length,
+        cover: t.screens.find((s) => s.imageAssetId)?.imageAssetId ?? null,
+        version: t.version,
+        updatedAt: t.updatedAt ?? null,
+        usedBy: sims.filter((s) => s.toolId === t.id).map((s) => ({ id: s.id, title: s.title })),
+      })),
+    );
+  }),
+);
+
+app.get(
+  "/api/tools/:id",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    res.json(await getTool(param(req, "id")));
+  }),
+);
+
+/** Create a tool (POST) or save one (PUT, with the version it was loaded at). */
+app.post(
+  "/api/tools",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    res.status(201).json(await saveTool({ ...req.body, id: newId("tool"), version: undefined }));
+  }),
+);
+app.put(
+  "/api/tools/:id",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const id = param(req, "id");
+    const current = await getTool(id);
+    const expect = typeof req.body?.version === "number" ? req.body.version : undefined;
+    res.json(await saveToolEverywhere({ ...current, ...req.body, id }, { expectVersion: expect, renames: renamesParam(req.body?.renames) }));
+  }),
+);
+app.delete(
+  "/api/tools/:id",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    await deleteTool(param(req, "id"));
+    res.status(204).end();
+  }),
+);
+
+/** Before saving a tool change: what would it break in each simulation that uses the tool? */
+app.post(
+  "/api/tools/:id/impact",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const id = param(req, "id");
+    const tool = await getTool(id);
+    const proposed = ToolSchema.pick({ startScreenId: true, variables: true, screens: true }).parse(req.body);
+    const users = await simulationsUsingTool(id);
+    const [grading, personas] = await Promise.all([readGrading(), readPersonas()]);
+    const sims = await Promise.all(users.map((u) => getSimulation(u.id)));
+    res.json({ tool: { id: tool.id, name: tool.name, version: tool.version }, rows: toolImpact(sims, proposed, grading.schemes, personas, renamesParam(req.body?.renames)) });
+  }),
+);
+
+/** A new simulation (no scenarios yet) on an existing tool. */
+app.post(
+  "/api/tools/:id/simulations",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const tool = await getTool(param(req, "id"));
+    const title = String(req.body?.title ?? "").trim().slice(0, 200) || `${tool.name} practice`;
+    const sim = await saveSimulation({ id: newId(), title, description: "", toolId: tool.id, toolVersion: tool.version, ...toolParts(tool), scenarios: [] });
+    res.status(201).json(sim);
+  }),
+);
+
+/**
+ * Move a simulation onto another tool (e.g. to merge copies). Without `apply`, only checks:
+ * each scenario path is auto-played on the target tool and the results are returned.
+ */
+app.post(
+  "/api/simulations/:id/tool",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const sim = await getSimulation(param(req, "id"));
+    const target = await getTool(String(req.body?.toolId ?? ""));
+    const [grading, personas] = await Promise.all([readGrading(), readPersonas()]);
+    const moved = { ...sim, ...toolParts(target), toolId: target.id };
+    const health = checkSimulation(moved, grading.schemes, personas);
+    const issues = lintSimulation(moved);
+    if (req.body?.apply === true) {
+      const saved = await setSimulationTool(sim.id, target.id);
+      return void res.json({ simulation: saved, paths: health.paths, issues });
+    }
+    res.json({ paths: health.paths, issues });
+  }),
+);
+
+/** Health of every simulation (Builders): status and counts, for the Quality list. */
+app.get(
+  "/api/quality",
+  route(async (req, res) => {
+    requirePermission(req, "simulations.build");
+    const [summaries, grading, personas, attempts] = await Promise.all([listSimulations(), readGrading(), readPersonas(), listAttempts()]);
+    const out = [];
+    for (const s of summaries) {
+      const sim = await getSimulation(s.id);
+      const h = checkSimulation(sim, grading.schemes, personas, attempts.filter((a) => a.simulationId === s.id));
+      out.push({ id: s.id, title: s.title, status: h.status, errors: h.problems.filter((p) => p.level === "error").length, warnings: h.problems.filter((p) => p.level === "warning").length, paths: h.paths.length });
+    }
+    const rank = { problems: 0, check: 1, healthy: 2 };
+    res.json(out.sort((a, b) => rank[a.status] - rank[b.status] || a.title.localeCompare(b.title)));
+  }),
+);
+
+/** One simulation's health, and its recent attempts for review (anonymised for Builders). */
+app.get(
+  "/api/quality/:simId",
+  route(async (req, res) => {
+    const r = requirePermission(req, "simulations.build");
+    const sim = await getSimulation(param(req, "simId"));
+    const [grading, personas, raw] = await Promise.all([readGrading(), readPersonas(), listAttempts(sim.id)]);
+    const attempts = withUserIds(raw, r.people);
+    const recent = [...attempts].sort((a, b) => b.finishedAt.localeCompare(a.finishedAt)).slice(0, 200);
+    res.json({ health: checkSimulation(sim, grading.schemes, personas, attempts), attempts: reviewView(r, recent), total: attempts.length });
+  }),
+);
+
 /** Trainer marking: set manual rubric criteria to met / not met / unmarked (null), then rescore. */
 app.post(
   "/api/attempts/:id/marks",
@@ -477,11 +685,18 @@ app.post(
 app.get(
   "/api/analytics",
   route(async (req, res) => {
-    requirePermission(req, "simulations.build");
-    const [sims, attempts] = await Promise.all([listSimulations(), listAttempts()]);
+    const r = requirePermission(req, "simulations.build");
+    const [sims, all] = await Promise.all([listSimulations(), listAttempts()]);
+    const team = teamParam(req.query.team);
+    const attempts = scoped(r, all, req.query, team);
     res.json(
       sims
-        .map((s) => ({ id: s.id, title: s.title, tagIds: s.tagIds, scenarios: s.scenarios, stats: stats(attempts.filter((a) => a.simulationId === s.id)) }))
+        .map((s) => {
+          const st = stats(attempts.filter((a) => a.simulationId === s.id));
+          // With a team chosen, too few learners would identify individuals: show nothing.
+          const hidden = !!team && st.learners > 0 && st.learners < MIN_TEAM_LEARNERS;
+          return { id: s.id, title: s.title, tagIds: s.tagIds, scenarios: s.scenarios, hidden, stats: hidden ? stats([]) : st };
+        })
         .sort((a, b) => b.stats.attempts - a.stats.attempts),
     );
   }),
@@ -490,9 +705,14 @@ app.get(
 app.get(
   "/api/analytics/:simId",
   route(async (req, res) => {
-    requirePermission(req, "simulations.build");
+    const r = requirePermission(req, "simulations.build");
     const sim = await getSimulation(param(req, "simId"));
-    res.json(analyzeSimulation(sim, await listAttempts(sim.id), req.query.guided !== "0"));
+    const team = teamParam(req.query.team);
+    const result = analyzeSimulation(sim, scoped(r, await listAttempts(sim.id), req.query, team), req.query.guided !== "0");
+    if (team && result.overall.learners > 0 && result.overall.learners < MIN_TEAM_LEARNERS) {
+      return void res.json({ ...analyzeSimulation(sim, []), hidden: true });
+    }
+    res.json(result);
   }),
 );
 
@@ -552,6 +772,15 @@ async function streamAi(res: Response, work: (send: (o: object) => void) => Prom
   res.end();
 }
 
+/** The tags and grading schemes Claude may choose from (the default scheme is "null"). */
+async function libraryContext(): Promise<LibraryContext> {
+  const [tax, grading] = await Promise.all([readTaxonomy(), readGrading()]);
+  return {
+    tags: tax.topics.flatMap((t) => t.tags.map((g) => ({ id: g.id, name: g.name, topic: t.name }))),
+    schemes: grading.schemes.filter((s) => s.id !== DEFAULT_SCHEME_ID).map((s) => ({ id: s.id, name: s.name, description: s.description ?? "" })),
+  };
+}
+
 app.post(
   "/api/generate",
   route(async (req, res) => {
@@ -564,7 +793,7 @@ app.post(
       images.push({ assetId, width: img.width, height: img.height, mediaType: img.mediaType, data: img.data, label: img.source ?? img.name });
     }
     await streamAi(res, async (progress) => {
-      const result = await generateSimulation(input, images, newId(), (p) => progress({ type: "progress", ...p }));
+      const result = await generateSimulation(input, images, newId(), (p) => progress({ type: "progress", ...p }), await libraryContext());
       result.simulation = await saveSimulation(result.simulation);
       return result;
     });
@@ -588,7 +817,8 @@ app.post(
       images.push({ assetId: s.imageAssetId, width: Math.round(height * s.aspect), height, mediaType, data: data.toString("base64"), label: `screen "${s.name}"` });
     }
     // Refinement returns the revised simulation without saving; the author reviews it in the editor.
-    await streamAi(res, (progress) => refineSimulation(sim, instruction, images, (p) => progress({ type: "progress", ...p })));
+    const lib = await libraryContext();
+    await streamAi(res, (progress) => refineSimulation(sim, instruction, images, (p) => progress({ type: "progress", ...p }), lib));
   }),
 );
 

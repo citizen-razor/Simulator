@@ -21,6 +21,7 @@ import { lintSimulation } from "../shared/engine";
 import { keyFromLabel, PersonaSchema, type Persona, type PersonaTemplate } from "../shared/personas";
 import {
   ActionTypes,
+  Channels,
   ConditionOps,
   ElementKinds,
   ExpectOps,
@@ -80,6 +81,15 @@ const DraftScenario = z.object({
   steps: z.array(DraftStep),
   alternatePaths: z.array(z.object({ id: z.string(), name: z.string(), steps: z.array(DraftStep) })),
   successCriteria: z.array(DraftCondition),
+  /** A customer the trainee talks to (AI-played), when the task naturally involves one. */
+  conversation: z
+    .object({
+      channel: z.enum(Channels),
+      brief: z.string(),
+      opening: z.string(),
+      criteria: z.array(z.object({ label: z.string(), weight: z.number().int() })),
+    })
+    .nullable(),
 });
 export const DraftSimulation = z.object({
   title: z.string(),
@@ -88,6 +98,10 @@ export const DraftSimulation = z.object({
   variables: z.array(z.object({ name: z.string(), initial: z.string(), description: z.string() })),
   screens: z.array(DraftScreen),
   scenarios: z.array(DraftScenario),
+  /** Tags chosen from the organisation's library (ids from the list provided). */
+  tagIds: z.array(z.string()),
+  /** A grading scheme from the library that fits best, or null for the default. */
+  gradingSchemeId: z.string().nullable(),
   authorNotes: z.string(),
 });
 type Draft = z.infer<typeof DraftSimulation>;
@@ -110,6 +124,9 @@ How the format works:
 - Video frames arrive in order. Merge frames that show the same screen into one screen (use the clearest frame as its image) and use the transitions between frames to infer what was clicked and the workflow's steps.
 - Source code/HTML: derive real screens, field names, validation rules and navigation from it.
 - Written procedures: turn them into scenarios and, if there are no images, wireframe screens.
+- tagIds: choose the tags that fit this simulation from the "Library" list provided (use their ids exactly; never invent tags). Empty if none fit or no list is given.
+- gradingSchemeId: pick the grading scheme from the Library list whose description best fits this training, or null to use the organisation's default. Never invent ids.
+- conversation (per scenario): if the task naturally involves dealing with a customer or member of the public (a support call, a counter, a chat), describe the customer the trainee talks to while doing the task: channel (chat, phone or in-person), brief (written TO the customer in second person: why they're getting in touch, their mood, what they want, what reassures them; no personal account details, those come from a persona), opening ("" to let the customer open in their own words), and 2-5 criteria for good handling, each a short observable behaviour ("Verified the customer's identity before discussing the account") with a weight 1-5. Otherwise null.
 - authorNotes: briefly tell the author what you assumed, what you could not determine, and what they should check in the editor.
 Prefer a complete, coherent, working simulation over an exhaustive one: typically 3-8 screens.`;
 
@@ -177,7 +194,7 @@ async function buildContent(input: GenerateInput, images: StoredImage[]): Promis
 export type Progress = (p: { phase: "thinking" | "writing"; chars: number }) => void;
 
 let client: Anthropic | null = null;
-const getClient = () => (client ??= new Anthropic());
+export const getClient = () => (client ??= new Anthropic());
 
 async function callClaude(content: Content[], onProgress: Progress): Promise<Draft> {
   const stream = getClient().beta.messages.stream({
@@ -227,7 +244,20 @@ const slug = (s: string, fallback: string) =>
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(n) ? n : lo));
 const nn = <T>(v: T | null): T | undefined => (v === null ? undefined : v);
 
-export function draftToSimulation(draft: Draft, id: string, images: StoredImage[]): Simulation {
+/** Tags and grading schemes the organisation has, offered to Claude to choose from. */
+export interface LibraryContext {
+  tags: { id: string; name: string; topic: string }[];
+  schemes: { id: string; name: string; description: string }[];
+}
+
+export function libraryText(lib: LibraryContext): string {
+  return (
+    `<library>\nTags (id: topic / tag):\n${lib.tags.map((t) => `- ${t.id}: ${t.topic} / ${t.name}`).join("\n") || "(none)"}\n` +
+    `Grading schemes (id: name, description):\n${lib.schemes.map((s) => `- ${s.id}: ${s.name}${s.description ? `, ${s.description}` : ""}`).join("\n") || "(none)"}\n</library>`
+  );
+}
+
+export function draftToSimulation(draft: Draft, id: string, images: StoredImage[], lib: LibraryContext = { tags: [], schemes: [] }): Simulation {
   // Make ids safe and unique, remembering renames so references still resolve.
   const used = new Set<string>();
   const unique = (raw: string, fallback: string) => {
@@ -256,6 +286,8 @@ export function draftToSimulation(draft: Draft, id: string, images: StoredImage[
 
   return SimulationSchema.parse({
     id,
+    tagIds: [...new Set(draft.tagIds)].filter((t) => lib.tags.some((x) => x.id === t)),
+    grading: { schemeId: lib.schemes.some((s) => s.id === draft.gradingSchemeId) ? draft.gradingSchemeId : null, bindings: [] },
     title: draft.title || "Untitled simulation",
     description: draft.description,
     startScreenId: screenRef(draft.startScreenId) ?? screenMap.values().next().value,
@@ -306,8 +338,76 @@ export function draftToSimulation(draft: Draft, id: string, images: StoredImage[
         .filter((p) => p.steps.length > 0)
         .map((p, i) => ({ id: slug(p.id, `path-${i + 2}`).replace(/^main$/, `path-${i + 2}`), name: p.name || `Alternative ${i + 1}`, steps: p.steps.map(step) })),
       successCriteria: sc.successCriteria.map(cond),
+      conversation: sc.conversation
+        ? {
+            enabled: true,
+            channel: sc.conversation.channel,
+            role: "customer",
+            brief: sc.conversation.brief.slice(0, 4000),
+            opening: sc.conversation.opening.slice(0, 500),
+            criteria: sc.conversation.criteria
+              .filter((c) => c.label.trim())
+              .slice(0, 12)
+              .map((c, i) => ({ id: `c${i + 1}`, label: c.label.trim().slice(0, 200), weight: clamp(Math.round(c.weight), 1, 5) })),
+            weight: 30,
+          }
+        : undefined,
     })),
   });
+}
+
+/**
+ * Keep what Claude doesn't see or edit when it revises a simulation: personas, random data,
+ * grading targets and trainer-marking choice, and per scenario its personas, scheme, random-data
+ * choice and the customer's role and weight; per element a table's source and clickable rows.
+ */
+export function keepUnrevised(original: Simulation, revised: Simulation): Simulation {
+  const out = structuredClone(revised);
+  out.personas = original.personas;
+  out.randomData = original.randomData;
+  out.grading = { ...out.grading, bindings: original.grading.bindings, trainerMarking: original.grading.trainerMarking };
+  out.createdAt = original.createdAt;
+  for (const sc of out.scenarios) {
+    const before = original.scenarios.find((x) => x.id === sc.id);
+    if (!before) continue;
+    sc.personaOverrides = before.personaOverrides;
+    sc.gradingSchemeId = before.gradingSchemeId;
+    sc.randomize = before.randomize;
+    if (sc.conversation && before.conversation) {
+      sc.conversation.role = before.conversation.role;
+      sc.conversation.weight = before.conversation.weight;
+      sc.conversation.enabled = before.conversation.enabled;
+      // Keep criterion ids where the wording is unchanged, so results stay comparable.
+      sc.conversation.criteria = sc.conversation.criteria.map((c) => ({ ...c, id: before.conversation!.criteria.find((b) => b.label === c.label)?.id ?? c.id }));
+    }
+  }
+  const elementsBefore = new Map(original.screens.flatMap((s) => s.elements).map((e) => [e.id, e]));
+  for (const s of out.screens) {
+    for (const e of s.elements) {
+      const before = elementsBefore.get(e.id);
+      if (before?.kind === "table" && e.kind === "table") {
+        e.tableSource ??= before.tableSource;
+        e.rowKey ??= before.rowKey;
+      }
+    }
+  }
+  return SimulationSchema.parse(out);
+}
+
+/** What Claude suggested from the library, for the author's notes. */
+export function suggestionNotes(sim: Simulation, lib: LibraryContext): string {
+  const notes: string[] = [];
+  const tags = sim.tagIds.map((id) => lib.tags.find((t) => t.id === id)?.name).filter(Boolean);
+  if (tags.length) notes.push(`Suggested tags: ${tags.join(", ")}.`);
+  const scheme = lib.schemes.find((s) => s.id === sim.grading.schemeId);
+  if (scheme) notes.push(`Suggested grading scheme: ${scheme.name}.`);
+  const talks = sim.scenarios.filter((s) => s.conversation?.enabled);
+  if (talks.length) {
+    notes.push(
+      `Added an AI customer to ${talks.map((s) => `"${s.title}"`).join(", ")}. Choose which persona plays them (Settings → Personas), then check the situation and criteria in each scenario.`,
+    );
+  }
+  return notes.join(" ");
 }
 
 /** Turn a saved simulation back into a draft so Claude can revise it. */
@@ -371,7 +471,17 @@ export function simulationToDraft(sim: Simulation, images: StoredImage[]): Draft
       steps: sc.steps.map(draftStep),
       alternatePaths: sc.alternatePaths.map((p) => ({ id: p.id, name: p.name, steps: p.steps.map(draftStep) })),
       successCriteria: sc.successCriteria.map(cond),
+      conversation: sc.conversation?.enabled
+        ? {
+            channel: sc.conversation.channel,
+            brief: sc.conversation.brief,
+            opening: sc.conversation.opening,
+            criteria: sc.conversation.criteria.map((c) => ({ label: c.label, weight: c.weight })),
+          }
+        : null,
     })),
+    tagIds: sim.tagIds,
+    gradingSchemeId: sim.grading.schemeId,
     authorNotes: "",
   };
 }
@@ -387,6 +497,7 @@ export async function generateSimulation(
   images: StoredImage[],
   id: string,
   onProgress: Progress,
+  lib: LibraryContext = { tags: [], schemes: [] },
 ): Promise<GenerateResult> {
   const content = await buildContent(input, images);
   if (content.length === 0 && !input.notes.trim()) throw new Error("Add at least one file or a description.");
@@ -395,12 +506,13 @@ export async function generateSimulation(
     text:
       `Build a training simulation from the material above.` +
       (input.title ? `\nWorking title: ${input.title}` : "") +
-      (input.notes.trim() ? `\nAuthor's notes and training goals:\n${input.notes.trim()}` : ""),
+      (input.notes.trim() ? `\nAuthor's notes and training goals:\n${input.notes.trim()}` : "") +
+      `\n\n${libraryText(lib)}`,
   });
   const draft = await callClaude(content, onProgress);
   if (input.title) draft.title = input.title;
-  const simulation = draftToSimulation(draft, id, images);
-  return { simulation, notes: draft.authorNotes, issues: lintSimulation(simulation) };
+  const simulation = draftToSimulation(draft, id, images, lib);
+  return { simulation, notes: [draft.authorNotes, suggestionNotes(simulation, lib)].filter(Boolean).join("\n\n"), issues: lintSimulation(simulation) };
 }
 
 export async function refineSimulation(
@@ -408,6 +520,7 @@ export async function refineSimulation(
   instruction: string,
   images: StoredImage[],
   onProgress: Progress,
+  lib: LibraryContext = { tags: [], schemes: [] },
 ): Promise<GenerateResult> {
   const content: Content[] = [];
   images.forEach((img, i) => {
@@ -419,11 +532,10 @@ export async function refineSimulation(
     text:
       `Here is the current simulation:\n<simulation>\n${JSON.stringify(simulationToDraft(sim, images))}\n</simulation>\n\n` +
       `Revise it according to the author's request below and return the COMPLETE updated simulation. ` +
-      `Keep existing ids, layout and content unless the request requires changing them.\n\n<request>\n${instruction}\n</request>`,
+      `Keep existing ids, layout and content unless the request requires changing them.\n\n${libraryText(lib)}\n\n<request>\n${instruction}\n</request>`,
   });
   const draft = await callClaude(content, onProgress);
-  const updated = draftToSimulation(draft, sim.id, images);
-  updated.createdAt = sim.createdAt;
+  const updated = keepUnrevised(sim, draftToSimulation(draft, sim.id, images, lib));
   return { simulation: updated, notes: draft.authorNotes, issues: lintSimulation(updated) };
 }
 

@@ -19,25 +19,27 @@ import {
 import { api } from "../api";
 import { useAdmin } from "../lib/admin";
 import { PersonaLibraryPanel } from "./PersonaLibrary";
+import { ToolLibraryPanel } from "./ToolLibrary";
 
 export default function Libraries({ tab, personaId }: { tab?: string; personaId?: string }) {
   const { isAdmin } = useAdmin();
-  const current = tab === "grading" || (tab === "storage" && isAdmin) || tab === "personas" ? tab : "tags";
+  const current = tab === "grading" || (tab === "storage" && isAdmin) || tab === "personas" || tab === "tags" ? tab : "tools";
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <h1>Libraries</h1>
-          <p className="muted">Shared topics, tags, personas and grading schemes that every simulation can use.</p>
+          <p className="muted">Shared tools, topics, tags, personas and grading schemes that every simulation can use.</p>
         </div>
       </div>
       <div className="segmented page-tabs" role="tablist">
+        <a role="tab" aria-selected={current === "tools"} className={current === "tools" ? "on" : ""} href="#/libraries/tools">Tools</a>
         <a role="tab" aria-selected={current === "tags"} className={current === "tags" ? "on" : ""} href="#/libraries/tags">Topics & tags</a>
         <a role="tab" aria-selected={current === "personas"} className={current === "personas" ? "on" : ""} href="#/libraries/personas">Personas</a>
         <a role="tab" aria-selected={current === "grading"} className={current === "grading" ? "on" : ""} href="#/libraries/grading">Grading schemes</a>
         {isAdmin && <a role="tab" aria-selected={current === "storage"} className={current === "storage" ? "on" : ""} href="#/libraries/storage">Storage</a>}
       </div>
-      {current === "tags" ? <TaxonomyEditor /> : current === "personas" ? <PersonaLibraryPanel initialPersonaId={personaId} /> : current === "grading" ? <GradingEditor /> : <StoragePanel />}
+      {current === "tools" ? <ToolLibraryPanel /> : current === "tags" ? <TaxonomyEditor /> : current === "personas" ? <PersonaLibraryPanel initialPersonaId={personaId} /> : current === "grading" ? <GradingEditor /> : <StoragePanel />}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import Library from "./pages/Library";
 import MyTraining from "./pages/MyTraining";
 import People from "./pages/People";
 import Performance from "./pages/Performance";
+import Quality from "./pages/Quality";
 import Player from "./pages/Player";
 import Progress from "./pages/Progress";
 import Results from "./pages/Results";
@@ -39,13 +40,15 @@ export default function App() {
     progress: true, // the page itself limits you to who you may see
     new: auth.isBuilder,
     edit: auth.isBuilder,
+    tool: auth.isBuilder,
     performance: auth.isBuilder,
+    quality: auth.isBuilder,
     assignments: canSeeOthers,
     results: canSeeOthers,
     libraries: auth.isBuilder, // Builders view; only Admin-Builders edit
     people: auth.isAdmin,
   };
-  const full = page === "play" || page === "edit";
+  const full = page === "play" || page === "edit" || page === "tool";
   const nav = (href: string, label: string, key: string) => (
     <a href={href} className={page === key ? "active" : ""}>{label}</a>
   );
@@ -65,6 +68,7 @@ export default function App() {
           {canSeeOthers && nav("#/assignments", "Assignments", "assignments")}
           {canSeeOthers && nav("#/results", "Results", "results")}
           {auth.isBuilder && nav("#/performance", "Performance", "performance")}
+          {auth.isBuilder && nav("#/quality", "Quality", "quality")}
           {(auth.isAdmin || auth.isBuilder) && nav("#/libraries", "Libraries", "libraries")}
           {auth.isAdmin && nav("#/people", "People", "people")}
         </nav>
@@ -82,6 +86,8 @@ export default function App() {
           <Create />
         ) : page === "edit" && id ? (
           <Editor key={id} id={id} />
+        ) : page === "tool" && id ? (
+          <Editor key={`tool-${id}`} id={id} toolId={id} />
         ) : page === "play" && id ? (
           <Player key={`${id}?${route.query.toString()}`} id={id} query={route.query} />
         ) : page === "my" ? (
@@ -96,6 +102,8 @@ export default function App() {
           <Progress key={id ?? ""} userId={id} />
         ) : page === "results" ? (
           <Results simulationId={id} />
+        ) : page === "quality" ? (
+          <Quality key={id ?? ""} simulationId={id} />
         ) : page === "performance" ? (
           <Performance key={id ?? ""} simulationId={id} />
         ) : page === "people" ? (

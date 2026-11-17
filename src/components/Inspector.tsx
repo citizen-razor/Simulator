@@ -1,4 +1,6 @@
 /** Property panels for the editor's right-hand side. Each takes a value and an onChange. */
+import { resolveScheme } from "../../shared/grading";
+import { ConversationEditor } from "./ConversationEditor";
 import { createContext, useContext, useEffect, useState } from "react";
 import {
   ActionTypes,
@@ -27,7 +29,11 @@ import { ScenarioPersonas } from "./PersonaAssignments";
  * those provided by personas ({{customer.name}}). The editor provides them so variable
  * fields can suggest them.
  */
-export const ExtraVariablesContext = createContext<{ names: string[]; tables: string[] }>({ names: [], tables: [] });
+export const ExtraVariablesContext = createContext<{ names: string[]; tables: string[]; tableColumns: Record<string, { key: string; label: string }[]> }>({
+  names: [],
+  tables: [],
+  tableColumns: {},
+});
 import { GeneratorKinds, generateValues, newSeed, type RandomVar } from "../../shared/random";
 
 const OP_LABEL: Record<(typeof ConditionOps)[number], string> = {
@@ -259,6 +265,7 @@ export function ElementInspector({ el, sim, onChange, onDelete, onRename, onDupl
         </>
       )}
       {el.kind === "table" && <TableSourceField el={el} onChange={(tableSource) => set({ tableSource })} />}
+      {el.kind === "table" && <RowClickFields el={el} sim={sim} onChange={(patch) => set(patch)} />}
       <details open={!!el.visibleIf?.length}>
         <summary>Visible only when…</summary>
         <ConditionsEditor value={el.visibleIf ?? []} onChange={(c) => set({ visibleIf: c.length ? c : undefined })} sim={sim} emptyText="Always visible" />
@@ -447,6 +454,15 @@ export function ScenarioInspector({ scenario, sim, onChange, onDelete, onRecord,
         </>
       )}
 
+      <h4>Customer conversation</h4>
+      <ConversationEditor
+        scenario={scenario}
+        sim={sim}
+        personaLib={personaLib}
+        scheme={schemes ? resolveScheme(sim, scenario.id, schemes) : null}
+        onChange={(c) => set({ conversation: c })}
+      />
+
       <h4>Steps</h4>
       <p className="muted small">
         The trainee performs a path's steps in order. If a task has more than one correct way, add an alternative path:
@@ -542,7 +558,8 @@ export function VariablesPanel({ sim, onChange, onRename, onRandomChange }: {
   sim: Simulation;
   onChange: (v: Simulation["variables"]) => void;
   onRename: (oldName: string, next: string) => string | null;
-  onRandomChange: (r: RandomVar[]) => void;
+  /** Random data belongs to a simulation, not a tool: left out when editing a tool. */
+  onRandomChange?: (r: RandomVar[]) => void;
 }) {
   const vars = sim.variables;
   const set = (i: number, patch: Partial<Simulation["variables"][number]>) => onChange(vars.map((v, j) => (j === i ? { ...v, ...patch } : v)));
@@ -574,7 +591,7 @@ export function VariablesPanel({ sim, onChange, onRename, onRandomChange }: {
           <button className="link-btn add" onClick={() => onChange([...vars, ...undeclared.map((name) => ({ name, initial: "" }))])}>Declare all</button>
         </p>
       )}
-      <RandomDataEditor sim={sim} onChange={onRandomChange} />
+      {onRandomChange && <RandomDataEditor sim={sim} onChange={onRandomChange} />}
     </div>
   );
 }
@@ -695,6 +712,38 @@ function VarNameCell({ value, onRename }: { value: string; onRename: (next: stri
         onKeyDown={(e) => e.key === "Enter" && commit()}
       />
       {err && <small className="text-error">{err}</small>}
+    </>
+  );
+}
+
+/** Clickable rows: which column identifies a row, and where its value is stored. */
+function RowClickFields({ el, sim, onChange }: { el: SimElement; sim: Simulation; onChange: (patch: Partial<SimElement>) => void }) {
+  const { tableColumns } = useContext(ExtraVariablesContext);
+  const columns = tableColumns[el.tableSource ?? ""] ?? [];
+  const store = el.bindVar || el.id;
+  return (
+    <>
+      <label className="field">
+        <span>Clicking a row</span>
+        <select value={el.rowKey ?? ""} onChange={(e) => onChange({ rowKey: e.target.value || undefined })}>
+          <option value="">Does nothing (read-only table)</option>
+          {columns.map((c) => <option key={c.key} value={c.key}>Selects it by {c.label}</option>)}
+          {el.rowKey && !columns.some((c) => c.key === el.rowKey) && <option value={el.rowKey}>Selects it by {el.rowKey}</option>}
+        </select>
+        {!columns.length && el.tableSource && <small className="muted">Columns appear once a persona with this table is linked in ⚙ Settings.</small>}
+      </label>
+      {el.rowKey && (
+        <>
+          <label className="field">
+            <span>Stores the row in variable</span>
+            <VarInput value={el.bindVar ?? ""} onChange={(v) => onChange({ bindVar: v || undefined })} sim={sim} placeholder={el.id} />
+          </label>
+          <p className="muted small">
+            Clicking a row sets <code>{`{{${store}}}`}</code> to its {el.rowKey} and each column as <code>{`{{${store}.column}}`}</code>, then
+            runs the rules below (e.g. go to an order screen). Steps can require a specific row with "equals".
+          </p>
+        </>
+      )}
     </>
   );
 }

@@ -127,9 +127,25 @@ export function PlayScreen({ screen, vars, highlightId, focusHighlight, revealHo
                     <table className="sim-table" aria-label={label}>
                       <thead><tr>{table.columns.map((c) => <th key={c.key}>{c.label}</th>)}</tr></thead>
                       <tbody>
-                        {table.rows.map((r, i) => (
-                          <tr key={i}>{table.columns.map((c) => <td key={c.key} className={c.type === "money" || c.type === "number" ? "num" : ""}>{formatValue(r[c.key] ?? "", c.type)}</td>)}</tr>
-                        ))}
+                        {table.rows.map((r, i) => {
+                          const key = el.rowKey ? r[el.rowKey] ?? "" : null;
+                          const cells = table.columns.map((c) => <td key={c.key} className={c.type === "money" || c.type === "number" ? "num" : ""}>{formatValue(r[c.key] ?? "", c.type)}</td>);
+                          return key === null ? (
+                            <tr key={i}>{cells}</tr>
+                          ) : (
+                            <tr
+                              key={i}
+                              className={`clickable-row ${vars[fieldVar(el)] === key ? "selected" : ""}`}
+                              tabIndex={0}
+                              role="button"
+                              aria-label={`Open ${key}`}
+                              onClick={() => onCommit(el, key)}
+                              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onCommit(el, key))}
+                            >
+                              {cells}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   ) : (

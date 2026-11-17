@@ -8,6 +8,7 @@ import { breakdown, stepTitles, type Breakdown, type FlowLine } from "../../shar
 export { stepTitles };
 import type { Attempt, Simulation } from "../../shared/schema";
 import { api } from "../api";
+import { AuditTrail } from "./AuditTrail";
 
 const fmt = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(1));
 
@@ -30,6 +31,13 @@ function Line({ l }: { l: FlowLine }) {
         {l.label}
         {l.kind === "step" && !l.done && <span className="muted small"> (not reached)</span>}
         {l.kind === "criterion" && l.manual && <span className="muted small"> (trainer-marked)</span>}
+        {l.kind === "criterion" && l.ai && <span className="muted small"> (conversation, judged by AI)</span>}
+        {l.reason && <div className={`flow-reason small ${l.review ? "struck" : ""}`}>{l.review ? `AI: ${l.reason}` : l.reason}</div>}
+        {l.review && (
+          <div className="flow-review small">
+            👤 Reviewed by a person: {l.review.note} <span className="muted">(the AI had marked it {l.review.originalMet ? "met" : "not met"})</span>
+          </div>
+        )}
       </span>
       <span className="flow-pts">
         {l.gained > 0 && <span className="pts-gain">+{fmt(l.gained)}</span>}
@@ -47,7 +55,8 @@ export function PointsFlow({ b, compact = false }: { b: Breakdown; compact?: boo
   // In compact mode, only show steps where something happened (plus a summary line).
   const quiet = b.steps.filter((l) => l.done && l.lost === 0);
   const shownSteps = compact && b.steps.length > 4 ? b.steps.filter((l) => !(l.done && l.lost === 0)) : b.steps;
-  const quietGain = quiet.reduce((n, l) => n + l.gained, 0);
+  // From the exact share, not the rounded lines, so 7 clean steps of 60 show +60, not +60.2.
+  const quietGain = (quiet.length * b.pointsShare) / Math.max(1, b.steps.length);
   return (
     <div className="points-flow">
       <p className="muted small">
@@ -98,5 +107,14 @@ export function AttemptPointsFlow({ attempt, compact }: { attempt: Attempt; comp
       .catch(() => setTitles([]));
   }, [attempt]);
   if (!titles) return <p className="muted small">Loading…</p>;
-  return <PointsFlow b={breakdown(attempt, titles)} compact={compact} />;
+  const b = breakdown(attempt, titles);
+  return (
+    <>
+      <PointsFlow b={b} compact={compact} />
+      <details className="transcript audit">
+        <summary>Every action and how it was scored ({attempt.log.length})</summary>
+        <AuditTrail log={attempt.log} b={b} />
+      </details>
+    </>
+  );
 }

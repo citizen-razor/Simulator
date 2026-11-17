@@ -11,35 +11,34 @@ Nothing right now.
 
 ## To do
 
+
+- ⬜ **AI judgement spot-check rate**: a running "how often reviewers agree with the AI" figure
+  per criterion (corrections already feed a warning on the Quality page).
+
 - ⬜ **Phone access**: let phones on the same Wi-Fi play simulations (with an access
   code); check the Player at phone sizes.
 - ⬜ **Video narration**: transcribe recordings' audio so the AI hears the explanation
   (needs a speech-to-text service).
-- ⬜ **AI suggestions for tags and rubric criteria** when generating a simulation.
 - ⬜ **Scheme-level defaults for screen/state checks**: let a scheme carry default
   conditions, for schemes written for one specific simulation.
 - ⬜ **Assignment reminders**: email or in-app notices before a due date (needs an email
   service).
 - ⬜ **SCIM groups → roles**: optionally map identity-provider groups to Builder /
   Admin-Builder roles (today roles are managed in the app).
-- ⬜ **Link older name-only results to people**: an Admin-Builder tool to attach results saved
-  before accounts (by typed name) to the right person when names don't match exactly.
 - ⬜ **Several organisations in the app**: a way to create and switch organisations (the
   storage and permissions already separate them).
 - ⬜ **Random persona per run**: let a scenario draw from a set of personas so trainees
   meet different customers (decided against for now; data on screens only).
-- ⬜ **Persona briefing card / AI-played customer**: show the persona to the trainee, or
-  let Claude role-play them in a chat (not chosen for now).
-- ⬜ **Clickable table rows**: let a table element's rows act like buttons (e.g. open an
-  order).
+- ⬜ **Voice for AI customers**: speak and listen on phone and in-person conversations
+  (needs speech-to-text and text-to-speech services); the channel is already stored.
+- ⬜ **Persona briefing card**: show the persona's details to the trainee up front (not chosen
+  for now; the AI customer shares them when asked).
 - ⬜ **Random values inside screenshots**: today random values appear in text elements and
   wireframes, not in the pixels of an uploaded screenshot.
 - ⬜ **Re-grade past attempts** when a scheme changes (today each attempt keeps the rules
   it was graded with, which is usually what you want for fairness).
 - ⬜ **Hosting for other people**: a real database, HTTPS, company single sign-on
   (SAML/OIDC), limits on AI spending; turn on SCIM from the customer's identity provider.
-- ⬜ **Performance over time and by topic**: trends by week, filters by date range and
-  team, and a CSV download of the figures.
 - ⬜ **Verify AI features with a real API key**: generation quality, box fine-tuning
   accuracy, and whether the AI proposes sensible alternative paths.
 
@@ -104,6 +103,44 @@ Nothing right now.
 - ✅ No waiting on people: trainer-marked criteria are skipped unless a builder turns on
   "Include trainer-marked criteria" for a simulation (off by default); results waiting for
   marking in simulations without it are settled automatically
+- ✅ AI-played customers: a scenario's persona played by Claude beside the screens, over chat,
+  phone or in person (typed for now). Shares details only when asked; builder writes the
+  situation, an optional opening line, and criteria judged by AI at the end with a reason per
+  criterion; criteria join the rubric (or carry their own weight); conversation-only scenarios;
+  transcripts on My progress and Results; per-person hourly limits
+- ✅ Conversation coaching in Guided mode: "What should I say?" suggests the next line and why
+  (knows the goal, situation and criteria, not the customer's private details)
+- ✅ Clickable table rows: a table can select a row by a column; the row's values become
+  variables, the table's rules run (e.g. open the order screen), and steps can require a row
+- ✅ Performance: date range (with last 30/90 days), week-by-week table, and CSV download of
+  the course list and of a course's figures (scenarios, weeks, steps, penalties, criteria)
+- ✅ Link older name-only results: People lists typed names that match no one (or several
+  people); the Admin-Builder picks the person and their results and assignments move over
+- ✅ Performance by team and topic: filter to a leader's whole reporting tree (hidden below 3
+  learners so no one's results can be singled out) and the course list by topic
+- ✅ AI suggestions when generating: tags from the library, a grading scheme from the library,
+  and an AI customer (channel, situation, criteria) for scenarios that involve one; listed in
+  the author's notes
+- ✅ Fixed: "Ask AI to change it" no longer drops personas, random data, tags, grading targets,
+  scenario persona/scheme choices, AI customers, or table settings
+- ✅ Quality assurance for builders: an audit trail on every attempt (each action and how it
+  was scored, passwords hidden); test mode (live scoring trace, never saved); a Quality page
+  per simulation with automatic checks (every path auto-played by a "perfect trainee", which
+  must finish with no errors and full points; perfect runs must meet the automatic rubric;
+  unset grading checks; AI customers without a persona) and warning signs from results;
+  anonymised review of attempts ("Learner A"), with corrections to AI-judged marks (note
+  required, learner sees it, AI's original and history kept)
+- ✅ Tool library: each system simulated is a tool (screens, controls, rules, variables) that
+  many simulations share; every simulation uses one. Builders create and edit tools; a change
+  updates every simulation using it, after an impact check (every scenario auto-played with the
+  change, newly broken ones listed; save anyway or go back; edits made at the same time are
+  refused instead of overwritten). Existing simulations were converted (one tool each); copies can
+  be merged by moving simulations onto one tool after a check. New simulations can start on an
+  existing tool; imports always get a new tool
+- ✅ Renames across a shared tool: renaming a control, screen or variable is carried into every
+  simulation on the tool (scenarios, grading checks, AI customers) when you save; the impact check
+  applies them first and lists them. Renames now also update grading targets and the AI
+  customer's text within a simulation
 - ✅ Decided: Open world stays unrecorded practice (objectives are a live checklist only);
   credit comes from Guided and Scenario runs
 

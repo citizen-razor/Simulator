@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import sample from "../samples/helpdesk.json";
-import { analyzeSimulation } from "../shared/analytics";
+import { analyzeSimulation, inDateRange, overviewCsv, performanceCsv, weekly } from "../shared/analytics";
 import { SimulationSchema, type Attempt } from "../shared/schema";
 
 const sim = SimulationSchema.parse(sample);
@@ -13,7 +13,7 @@ const rubric = (met: (boolean | null)[]) => [
 const at = (p: Partial<Attempt>): Attempt => ({
   id: `a${++n}`, userId: `u${n}`, trainee: "", simulationId: sim.id, simulationTitle: sim.title, scenarioId: "resolve-printer",
   scenarioTitle: "Resolve", mode: "scenario", assisted: false, completed: true, score: 90, errors: 0, hintsUsed: 0, durationSec: 60,
-  stepsCompleted: 7, stepsTotal: 7, pathName: "Main path", passed: true, mistakes: [], troubleSteps: [], penalties: [], finishedAt: "2026-11-14T00:00:00Z",
+  stepsCompleted: 7, stepsTotal: 7, pathName: "Main path", passed: true, mistakes: [], troubleSteps: [], penalties: [], log: [], finishedAt: "2026-11-14T00:00:00Z",
   ...p,
 });
 const graded = (met: (boolean | null)[], extra: Partial<Attempt> = {}): Attempt =>
@@ -78,5 +78,38 @@ describe("course performance", () => {
 
   it("can leave out guided runs", () => {
     expect(analyzeSimulation(sim, attempts, false).overall.attempts).toBe(4);
+  });
+
+  it("filters by date and groups by week, filling empty weeks", () => {
+    const xs = [at({ finishedAt: "2026-11-02T10:00:00Z" }), at({ finishedAt: "2026-11-05T10:00:00Z", score: 50, passed: false }), at({ finishedAt: "2026-11-19T10:00:00Z" })];
+    expect(inDateRange(xs, "2026-11-05", "2026-11-19")).toHaveLength(2);
+    expect(inDateRange(xs, undefined, "2026-11-04")).toHaveLength(1);
+    const w = weekly(xs);
+    expect(w.map((x) => [x.week, x.attempts])).toEqual([["2026-11-02", 2], ["2026-11-09", 0], ["2026-11-16", 1]]);
+    expect(w[0]).toMatchObject({ avgScore: 70, passRate: 0.5 });
+  });
+
+  it("exports the figures as CSV, safely", () => {
+    const csv = performanceCsv("Help desk", analyzeSimulation(sim, attempts));
+    const lines = csv.trim().split("\r\n");
+    expect(lines[0]).toMatch(/^Scenario,Type,Item,Attempts,Learners/);
+    expect(lines[1]).toMatch(/^Help desk,Course,,5,4,80,/);
+    expect(csv).toContain(",Criterion,Professional notes,3,,,,,,5,,,50,10");
+    expect(csv).toContain(",Step,5. Set the status to Resolved.,");
+    expect(csv).not.toMatch(/ana|ben|cai|dee/);
+    // Formula-looking text is neutralised; commas and quotes are quoted.
+    expect(overviewCsv([{ title: '=HYPERLINK("x"), y', scenarios: 1, stats: analyzeSimulation(sim, []).overall }])).toContain(`"'=HYPERLINK(""x""), y"`);
+  });
+
+  it("filters to a leader's whole reporting tree, matching older typed names", async () => {
+    const { teamAttempts } = await import("../shared/analytics");
+    const people = [
+      { id: "lead", name: "Lee", managerId: null, active: true },
+      { id: "ana", name: "Ana", managerId: "lead", active: true },
+      { id: "ben", name: "Ben Ito", managerId: "ana", active: true }, // two levels down
+      { id: "out", name: "Out", managerId: null, active: true },
+    ];
+    const xs = [at({ userId: "ana" }), at({ userId: undefined, trainee: "ben ito" }), at({ userId: "out" }), at({ userId: "lead" })];
+    expect(teamAttempts(xs, people, "lead").map((a) => a.userId)).toEqual(["ana", "ben"]);
   });
 });

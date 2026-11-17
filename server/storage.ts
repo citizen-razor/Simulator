@@ -31,6 +31,8 @@ import {
   type PersonaTemplate,
 } from "../shared/personas";
 import { ASSET_ID_PATTERN, AttemptSchema, ID_PATTERN, SimulationSchema, type Attempt, type Simulation } from "../shared/schema";
+import { applyRenames, effectiveRenames, type Rename } from "../shared/refactor";
+import { composeSimulation, sameToolParts, splitSimulation, StoredSimulationSchema, ToolSchema, toolParts, type StoredSimulation, type Tool } from "../shared/tools";
 
 export const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
 
@@ -51,6 +53,7 @@ function orgDir(): string {
   return id === DEFAULT_ORG ? DATA_DIR : path.join(DATA_DIR, "orgs", id);
 }
 const SIM_DIR = () => path.join(orgDir(), "simulations");
+const TOOL_DIR = () => path.join(orgDir(), "tools");
 const ASSET_DIR = () => path.join(orgDir(), "assets");
 const ATTEMPTS_FILE = () => path.join(orgDir(), "attempts.json");
 
@@ -61,6 +64,7 @@ export async function ensureOrgStorage() {
   const id = currentOrg();
   if (readyOrgs.has(id)) return;
   await fs.mkdir(SIM_DIR(), { recursive: true });
+  await fs.mkdir(TOOL_DIR(), { recursive: true });
   await fs.mkdir(ASSET_DIR(), { recursive: true });
   if ((await fs.readdir(SIM_DIR())).length === 0) for (const s of seedSims) await saveSimulation(s);
   readyOrgs.add(id);
@@ -100,47 +104,149 @@ export function newId(prefix = "sim") {
   return `${prefix}-${randomBytes(5).toString("hex")}`;
 }
 
-export async function listSimulations() {
-  const files = (await fs.readdir(SIM_DIR())).filter((f) => f.endsWith(".json"));
-  const sims = await Promise.all(
-    files.map(async (f) => {
-      try {
-        const s = SimulationSchema.parse(JSON.parse(await fs.readFile(path.join(SIM_DIR(), f), "utf8")));
-        const cover = s.screens.find((sc) => sc.imageAssetId)?.imageAssetId ?? null;
-        return {
-          id: s.id,
-          title: s.title,
-          description: s.description,
-          screens: s.screens.length,
-          scenarios: s.scenarios.length,
-          cover,
-          tagIds: s.tagIds,
-          updatedAt: s.updatedAt ?? null,
-        };
-      } catch {
-        return null; // skip unreadable files rather than breaking the library
-      }
-    }),
-  );
-  return sims.filter((s) => s !== null).sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+// ------------------------------------------------------------------ tools (shared/tools.ts)
+
+function toolPath(id: string) {
+  if (!ID_PATTERN.test(id)) throw new HttpError(400, "Invalid tool id");
+  return path.join(TOOL_DIR(), `${id}.json`);
 }
 
-export async function getSimulation(id: string): Promise<Simulation> {
+export async function getTool(id: string): Promise<Tool> {
   try {
-    return SimulationSchema.parse(JSON.parse(await fs.readFile(simPath(id), "utf8")));
+    return ToolSchema.parse(JSON.parse(await fs.readFile(toolPath(id), "utf8")));
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new HttpError(404, "Simulation not found");
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new HttpError(404, "Tool not found");
     throw e;
   }
 }
 
-export async function saveSimulation(input: unknown): Promise<Simulation> {
+export async function listTools(): Promise<Tool[]> {
+  const files = (await fs.readdir(TOOL_DIR()).catch(() => [] as string[])).filter((f) => f.endsWith(".json"));
+  const tools = await Promise.all(files.map((f) => getTool(f.slice(0, -5)).catch(() => null)));
+  return tools.filter((t) => t !== null).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Save a tool. With `expectVersion`, refuse if someone else saved it since it was loaded,
+ * rather than silently overwriting their change to every simulation that uses it.
+ */
+export async function saveTool(input: unknown, expectVersion?: number): Promise<Tool> {
+  const tool = ToolSchema.parse(input);
+  const current = await getTool(tool.id).catch(() => null);
+  if (current && expectVersion !== undefined && current.version !== expectVersion) {
+    throw new HttpError(409, `The tool "${current.name}" was changed by someone else since you opened it. Reload to get their changes, then make yours again.`);
+  }
+  const now = new Date().toISOString();
+  const saved = { ...tool, version: (current?.version ?? 0) + 1, createdAt: current?.createdAt ?? tool.createdAt ?? now, updatedAt: now };
+  await writeAtomic(toolPath(tool.id), JSON.stringify(saved, null, 2));
+  return saved;
+}
+
+/**
+ * Save a change to a shared tool and carry its renames into every other simulation that uses
+ * it: each is loaded with the tool as it was, the renames are applied to its scenarios, grading
+ * checks and AI customer, and it's saved with the new tool. `exceptSimId` is the simulation
+ * being saved by the caller (it already has the renames).
+ */
+export async function saveToolEverywhere(next: unknown, opts: { expectVersion?: number; renames?: Rename[]; exceptSimId?: string } = {}): Promise<Tool> {
+  const tool = ToolSchema.parse(next);
+  const renames = effectiveRenames(opts.renames ?? [], tool);
+  const others = renames.length ? (await simulationsUsingTool(tool.id)).filter((u) => u.id !== opts.exceptSimId) : [];
+  const updated = await Promise.all(others.map((u) => getSimulation(u.id).then((s) => applyRenames(s, renames))));
+  const saved = await saveTool(tool, opts.expectVersion);
+  const now = new Date().toISOString();
+  for (const s of updated) {
+    const { stored } = splitSimulation(s);
+    await writeAtomic(simPath(s.id), JSON.stringify(StoredSimulationSchema.parse({ ...stored, toolId: saved.id, updatedAt: now }), null, 2));
+  }
+  return saved;
+}
+
+export async function deleteTool(id: string) {
+  const users = await simulationsUsingTool(id);
+  if (users.length) throw new HttpError(409, `This tool is used by ${users.length} simulation${users.length === 1 ? "" : "s"}. Move or delete them first.`);
+  await fs.rm(toolPath(id), { force: true });
+}
+
+/** The stored simulation, converting one saved before tools existed (its screens become a tool). */
+async function readStored(id: string): Promise<StoredSimulation> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await fs.readFile(simPath(id), "utf8"));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new HttpError(404, "Simulation not found");
+    throw e;
+  }
+  if (raw && typeof raw === "object" && "toolId" in raw && !("screens" in raw)) return StoredSimulationSchema.parse(raw);
+  const legacy = SimulationSchema.parse(raw);
+  const tool = await saveTool({ id: newId("tool"), name: legacy.title, description: legacy.description, ...toolParts(legacy) });
+  const { stored } = splitSimulation({ ...legacy, toolId: tool.id });
+  const out = StoredSimulationSchema.parse(stored);
+  await writeAtomic(simPath(id), JSON.stringify(out, null, 2));
+  return out;
+}
+
+async function storedIds(): Promise<string[]> {
+  return (await fs.readdir(SIM_DIR())).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5));
+}
+
+export async function simulationsUsingTool(toolId: string): Promise<{ id: string; title: string }[]> {
+  const all = await Promise.all((await storedIds()).map((id) => readStored(id).catch(() => null)));
+  return all.filter((s) => s?.toolId === toolId).map((s) => ({ id: s!.id, title: s!.title }));
+}
+
+export async function listSimulations() {
+  const stored = await Promise.all((await storedIds()).map((id) => readStored(id).catch(() => null))); // skip unreadable files
+  const tools = new Map((await listTools()).map((t) => [t.id, t]));
+  return stored
+    .filter((s) => s !== null && tools.has(s.toolId))
+    .map((s) => {
+      const tool = tools.get(s!.toolId)!;
+      return {
+        id: s!.id,
+        title: s!.title,
+        description: s!.description,
+        toolId: tool.id,
+        toolName: tool.name,
+        screens: tool.screens.length,
+        scenarios: s!.scenarios.length,
+        cover: tool.screens.find((sc) => sc.imageAssetId)?.imageAssetId ?? null,
+        tagIds: s!.tagIds,
+        updatedAt: s!.updatedAt ?? null,
+      };
+    })
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+}
+
+export async function getSimulation(id: string): Promise<Simulation> {
+  const stored = await readStored(id);
+  return composeSimulation(stored, await getTool(stored.toolId));
+}
+
+/**
+ * Save a simulation. Its screens, controls and variables go to its tool: if they changed, the
+ * tool is updated (for every simulation that uses it), unless someone else changed the tool
+ * since this simulation was loaded (toolVersion). A simulation without a tool gets a new one.
+ */
+export async function saveSimulation(input: unknown, renames: Rename[] = []): Promise<Simulation> {
   const sim = SimulationSchema.parse(input);
   const now = new Date().toISOString();
-  sim.createdAt ??= now;
-  sim.updatedAt = now;
-  await writeAtomic(simPath(sim.id), JSON.stringify(sim, null, 2));
-  return sim;
+  const { stored, parts } = splitSimulation(sim);
+  let tool = stored.toolId ? await getTool(stored.toolId).catch(() => null) : null;
+  if (!tool) tool = await saveTool({ id: newId("tool"), name: sim.title, description: sim.description, ...parts });
+  else if (!sameToolParts(tool, parts)) tool = await saveToolEverywhere({ ...tool, ...parts }, { expectVersion: sim.toolVersion, renames, exceptSimId: sim.id });
+  const out = StoredSimulationSchema.parse({ ...stored, toolId: tool.id, createdAt: stored.createdAt ?? now, updatedAt: now });
+  await writeAtomic(simPath(out.id), JSON.stringify(out, null, 2));
+  return composeSimulation(out, tool);
+}
+
+/** Move a simulation onto another tool (its scenarios then use that tool's screens). */
+export async function setSimulationTool(id: string, toolId: string): Promise<Simulation> {
+  const stored = await readStored(id);
+  const tool = await getTool(toolId);
+  const out = StoredSimulationSchema.parse({ ...stored, toolId: tool.id, updatedAt: new Date().toISOString() });
+  await writeAtomic(simPath(out.id), JSON.stringify(out, null, 2));
+  return composeSimulation(out, tool);
 }
 
 export async function deleteSimulation(id: string) {
@@ -198,6 +304,8 @@ export async function listAttempts(simulationId?: string): Promise<Attempt[]> {
 
 /** Attempts in simulations without trainer marking never wait: settle any unmarked criteria. */
 async function settleWhereNoMarking(attempts: Attempt[]): Promise<Attempt[]> {
+  // AI-judged criteria are never left waiting: if the AI couldn't judge them, they're dropped.
+  attempts = attempts.map((a) => settleUnmarked(a, { manual: false }));
   const waiting = new Set(attempts.filter((a) => a.grading?.rubric.some((c) => c.manual && c.met === null)).map((a) => a.simulationId));
   if (!waiting.size) return attempts;
   const marking = new Map<string, boolean>();
@@ -280,6 +388,26 @@ export async function deleteScheme(schemeId: string) {
   await writeAtomic(GRADING_FILE(), JSON.stringify(lib, null, 2));
 }
 
+/**
+ * Attach results and assignments saved under a typed name (before accounts) to a person.
+ * Only records without an account are changed; returns how many of each.
+ */
+export async function linkNamedResults(trainee: string, userId: string): Promise<{ attempts: number; assignments: number }> {
+  const same = (name: string) => name.trim().toLowerCase() === trainee.trim().toLowerCase();
+  const job = attemptsLock.then(async () => {
+    const all = await readAllAttempts();
+    let n = 0;
+    const next = all.map((a) => (!a.userId && same(a.trainee) ? (n++, { ...a, userId }) : a));
+    if (n) await writeAtomic(ATTEMPTS_FILE(), JSON.stringify(next, null, 2));
+    return n;
+  });
+  attemptsLock = job.catch(() => undefined);
+  const attempts = await job;
+  let assignments = 0;
+  await updateAssignments((all) => all.map((a) => (!a.userId && same(a.trainee) ? (assignments++, { ...a, userId }) : a)));
+  return { attempts, assignments };
+}
+
 /** Change one saved attempt (used for trainer marking). Serialised with other attempt writes. */
 export function updateAttempt(attemptId: string, fn: (a: Attempt) => Attempt): Promise<Attempt> {
   const job = attemptsLock.then(async () => {
@@ -308,10 +436,8 @@ async function storedImages(): Promise<StoredFile[]> {
 
 async function referencedImages(): Promise<Set<string>> {
   const used = new Set<string>();
-  for (const summary of await listSimulations()) {
-    const sim = await getSimulation(summary.id);
-    for (const s of sim.screens) if (s.imageAssetId) used.add(s.imageAssetId);
-  }
+  // Screens live in tools, including tools no simulation uses yet.
+  for (const tool of await listTools()) for (const s of tool.screens) if (s.imageAssetId) used.add(s.imageAssetId);
   return used;
 }
 

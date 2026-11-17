@@ -78,6 +78,8 @@ export function renameScreen(sim: Simulation, oldId: string, newId: string) {
   if (sim.startScreenId === oldId) sim.startScreenId = newId;
   for (const e of allElements(sim)) for (const r of e.rules) for (const a of r.then) if (a.type === "navigate" && a.screenId === oldId) a.screenId = newId;
   for (const sc of sim.scenarios) if (sc.startScreenId === oldId) sc.startScreenId = newId;
+  // Grading checks pointed at this screen.
+  for (const b of sim.grading.bindings) if (b.screenId === oldId) b.screenId = newId;
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -122,6 +124,73 @@ export function renameVariable(sim: Simulation, oldName: string, newName: string
     st.hint = retemplate(st.hint);
   }
   for (const e of allElements(sim)) e.placeholder = retemplate(e.placeholder);
+  // Grading checks on the system's state, and the AI customer's situation and criteria.
+  for (const b of sim.grading.bindings) {
+    for (const c of b.conditions ?? []) {
+      if (c.var === oldName) c.var = newName;
+      c.value = retemplate(c.value);
+    }
+  }
+  for (const sc of sim.scenarios) {
+    const conv = sc.conversation;
+    if (!conv) continue;
+    conv.brief = retemplate(conv.brief)!;
+    conv.opening = retemplate(conv.opening)!;
+    for (const c of conv.criteria) c.label = retemplate(c.label)!;
+  }
+}
+
+// ------------------------------------------------------------------ renames across a shared tool
+
+/** A rename made to a tool's control, screen or variable (shared/tools.ts). */
+export interface Rename {
+  kind: "element" | "screen" | "variable";
+  from: string;
+  to: string;
+}
+
+/**
+ * Add a rename to the list kept while editing, combining chains (a→b then b→c is a→c) and
+ * dropping a rename that was undone by renaming back.
+ */
+export function recordRename(list: Rename[], r: Rename): Rename[] {
+  const chained = list.find((x) => x.kind === r.kind && x.to === r.from);
+  if (!chained) return r.from === r.to ? list : [...list, r];
+  const rest = list.filter((x) => x !== chained);
+  return chained.from === r.to ? rest : [...rest, { ...chained, to: r.to }];
+}
+
+const elementIds = (s: Pick<Simulation, "screens">) => new Set(s.screens.flatMap((x) => x.elements.map((e) => e.id)));
+const screenIds = (s: Pick<Simulation, "screens">) => new Set(s.screens.map((x) => x.id));
+const variableNames = (s: Pick<Simulation, "screens" | "variables">) =>
+  new Set([...s.variables.map((v) => v.name), ...s.screens.flatMap((x) => x.elements.filter(isField).map((e) => e.bindVar || e.id))]);
+
+/**
+ * The renames that are really in the new version of the tool: the new name exists and the old
+ * one is gone. (A rename that was later undone, or overtaken by a delete, is left out.)
+ */
+export function effectiveRenames(renames: Rename[], next: Pick<Simulation, "screens" | "variables">): Rename[] {
+  const have = { element: elementIds(next), screen: screenIds(next), variable: variableNames(next) };
+  return renames.filter((r) => r.from !== r.to && have[r.kind].has(r.to) && !have[r.kind].has(r.from));
+}
+
+/**
+ * Apply a tool's renames to another simulation that uses the tool (loaded with the tool as it
+ * was before), so its scenarios, grading checks and AI customer follow the new names. Renames
+ * that can't apply to this simulation are skipped. Returns the updated simulation.
+ */
+export function applyRenames(sim: Simulation, renames: Rename[]): Simulation {
+  const out = structuredClone(sim);
+  for (const r of renames) {
+    try {
+      if (r.kind === "element") renameElement(out, r.from, r.to);
+      else if (r.kind === "screen") renameScreen(out, r.from, r.to);
+      else renameVariable(out, r.from, r.to);
+    } catch {
+      // Not applicable here (e.g. already renamed); the impact check will show any leftovers.
+    }
+  }
+  return out;
 }
 
 // ------------------------------------------------------------------ duplicate

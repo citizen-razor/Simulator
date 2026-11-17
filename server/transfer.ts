@@ -110,7 +110,7 @@ export async function buildBundle(
       format: EXPORT_FORMAT,
       version: 1,
       exportedAt: new Date().toISOString(),
-      simulation: sim,
+      simulation: { ...sim, toolId: undefined, toolVersion: undefined },
       assets,
       library: { tags, schemes, personas, personaTemplates },
     },
@@ -152,7 +152,9 @@ export async function importBundle(raw: unknown, saveAsset: SaveAsset, newSimId:
     simulationRaw = raw; // plain simulation JSON
   }
 
-  const check = SimulationSchema.safeParse({ ...(simulationRaw as object), id: newSimId });
+  // An imported simulation always gets its own new tool (made when it's saved); it never
+  // writes over a tool here, even one with the same id. It can be moved onto another tool later.
+  const check = SimulationSchema.safeParse({ ...(simulationRaw as object), id: newSimId, toolId: undefined, toolName: undefined, toolVersion: undefined });
   if (!check.success) {
     const first = check.error.issues[0];
     throw new ImportError(`Not a valid simulation file${first ? ` (${first.path.join(".") || "root"}: ${first.message})` : ""}.`);

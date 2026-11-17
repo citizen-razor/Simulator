@@ -84,6 +84,11 @@ export const ElementSchema = z.object({
   visibleIf: z.array(ConditionSchema).optional(),
   /** table: the variable holding the table, e.g. "customer.orders" (from a persona). */
   tableSource: z.string().optional(),
+  /**
+   * table: makes rows clickable. Clicking a row stores this column's value in the element's
+   * variable (bindVar, or its id), and every column as <variable>.<column>; then its rules run.
+   */
+  rowKey: z.string().max(40).optional(),
   rules: z.array(RuleSchema).default([]),
 });
 
@@ -141,6 +146,35 @@ export const PersonaOverrideSchema = z
 export type PersonaLink = z.infer<typeof PersonaLinkSchema>;
 export type PersonaOverride = z.infer<typeof PersonaOverrideSchema>;
 
+/** How the learner and the AI customer talk. Typed for now; "phone" and "in-person" set the style. */
+export const Channels = ["chat", "phone", "in-person"] as const;
+export type Channel = (typeof Channels)[number];
+
+/**
+ * An AI-played customer for a scenario (see shared/conversation.ts). The customer is the
+ * persona playing `role`; the brief says what they want, how they feel and what they know.
+ * Criteria are judged by Claude from the transcript at the end of the run.
+ */
+export const ConversationSchema = z.object({
+  enabled: z.boolean().default(false),
+  channel: z.enum(Channels).default("chat"),
+  role: z.string().max(30).default("customer"),
+  /** The situation, from the customer's side: why they're getting in touch, their mood, what they want. */
+  brief: z.string().max(4000).default(""),
+  /** The customer's first words (optional; otherwise Claude opens in character). */
+  opening: z.string().max(500).default(""),
+  /** What good looks like, judged by AI at the end: e.g. "Verified identity before sharing account details". */
+  criteria: z.array(z.object({ id: z.string().max(40), label: z.string().max(200), weight: z.number().int().min(1).max(5).default(1) })).max(12).default([]),
+  /** Share of the score from the rubric when the grading scheme has no rubric of its own (percent). */
+  weight: z.number().int().min(0).max(100).default(30),
+});
+export type Conversation = z.infer<typeof ConversationSchema>;
+
+export const TranscriptSchema = z
+  .array(z.object({ from: z.enum(["learner", "customer"]), text: z.string().max(2000) }))
+  .max(100);
+export type Transcript = z.infer<typeof TranscriptSchema>;
+
 export const ScenarioSchema = z.object({
   id,
   title: z.string(),
@@ -164,6 +198,8 @@ export const ScenarioSchema = z.object({
    * scenario has); null = no persona for that role here; left out = the simulation's persona.
    */
   personaOverrides: z.array(PersonaOverrideSchema).default([]),
+  /** An AI-played customer the learner talks to during the scenario (off unless set up). */
+  conversation: ConversationSchema.optional(),
 });
 
 /** Per-simulation targets for a grading scheme's screen/state checks (see shared/library.ts). */
@@ -178,6 +214,16 @@ export const SimulationSchema = z.object({
   id,
   title: z.string().min(1),
   description: z.string().default(""),
+  /**
+   * The tool (shared/tools.ts) whose screens, controls and variables this simulation uses.
+   * Stored simulations keep only this id; startScreenId, variables and screens below are
+   * filled in from the tool when the simulation is loaded, so one change to a tool reaches
+   * every simulation that uses it. Missing on a brand-new simulation: saving creates its tool.
+   */
+  toolId: z.string().optional(),
+  /** The tool's name and version when loaded (for the editor; not stored with the simulation). */
+  toolName: z.string().optional(),
+  toolVersion: z.number().int().optional(),
   startScreenId: z.string(),
   variables: z.array(VariableSchema).default([]),
   screens: z.array(ScreenSchema).min(1),
@@ -225,6 +271,32 @@ export const stepTargets = (st: Step): string[] => [st.elementId, ...(st.alsoEle
 export type Simulation = z.infer<typeof SimulationSchema>;
 
 /** A finished Scenario/Guided run, saved for the Results page. */
+/**
+ * One entry in a run's audit trail: what the trainee did and how it was scored, so a person can
+ * check any score step by step. outcome:
+ *   step         completed the step shown in stepNo
+ *   error        used the wrong control (a penalty)
+ *   wrong-value  right control, wrong value (a penalty)
+ *   ignored      filled in a different field (never penalised; it may count for a later step)
+ *   hint         asked for a hint (a penalty)
+ *   free         not judged (exploring, or after the task was finished)
+ *   guided       switched to guided help (the run counts as assisted from here)
+ */
+export const AuditEventSchema = z.object({
+  /** Seconds since the run started. */
+  at: z.number(),
+  outcome: z.enum(["step", "error", "wrong-value", "ignored", "hint", "free", "guided"]),
+  screen: z.string().max(200).default(""),
+  /** The control used (its label). */
+  target: z.string().max(300).default(""),
+  /** What was entered or chosen (masked for password-like fields). */
+  value: z.string().max(500).optional(),
+  /** The step completed, or the step that was expected when it went wrong. */
+  stepNo: z.number().int().optional(),
+  step: z.string().max(500).optional(),
+});
+export type AuditEvent = z.infer<typeof AuditEventSchema>;
+
 export const PenaltyEventSchema = z.object({
   kind: z.enum(["error", "hint"]),
   stepNo: z.number().int().min(1),
@@ -258,6 +330,12 @@ export const AttemptSchema = z.object({
   troubleSteps: z.array(z.string()).default([]),
   /** Each error and hint in order, with the step (1-based, on the path taken) it happened on. */
   penalties: z.array(PenaltyEventSchema).default([]),
+  /** Corrections people made to AI-judged marks, oldest first. */
+  reviews: z
+    .array(z.object({ criterionId: z.string(), label: z.string(), from: z.boolean().nullable(), to: z.boolean(), note: z.string().max(500), by: z.string(), at: z.string() }))
+    .optional(),
+  /** Everything the trainee did and how each action was scored (absent on older attempts). */
+  log: z.array(AuditEventSchema).max(1000).default([]),
   /** Grading details (absent on attempts saved before the grading library existed). */
   grading: z
     .object({
@@ -273,7 +351,12 @@ export const AttemptSchema = z.object({
           label: z.string(),
           weight: z.number(),
           manual: z.boolean(),
-          /** null = waiting for a trainer to mark it. */
+          /** Judged by AI from the conversation (with a one-line reason for the learner). */
+          ai: z.boolean().optional(),
+          reason: z.string().max(500).optional(),
+          /** A person changed this AI mark (the reviewer's call stands; the AI's is kept). */
+          review: z.object({ originalMet: z.boolean().nullable(), note: z.string().max(500), at: z.string() }).optional(),
+          /** null = waiting for a trainer (or the AI) to mark it. */
           met: z.boolean().nullable(),
         }),
       ),
@@ -291,6 +374,8 @@ export const AttemptSchema = z.object({
         .optional(),
     })
     .optional(),
+  /** The conversation with the AI customer, if the scenario has one. */
+  conversation: z.object({ channel: z.enum(Channels), customer: z.string().max(100), messages: TranscriptSchema }).optional(),
   /** Random values this run used, and the seed that produced them. */
   data: z.record(z.string(), z.string()).optional(),
   seed: z.number().optional(),

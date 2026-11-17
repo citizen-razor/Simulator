@@ -10,6 +10,8 @@
  */
 import { breakdown, stepTitles, stepsRecorded, type FlowLine } from "./breakdown";
 import { isSolo, masteryMark } from "./progress";
+import { reportingTree, type User } from "./people";
+import { withUserIds } from "./leaderboard";
 import type { Attempt, Simulation } from "./schema";
 
 export interface Stats {
@@ -88,9 +90,65 @@ export interface ScenarioAnalysis {
   flow: PointsFlowAverage;
 }
 
+export interface WeekStats {
+  /** Monday the week starts (YYYY-MM-DD, UTC). */
+  week: string;
+  attempts: number;
+  learners: number;
+  avgScore: number | null;
+  passRate: number | null;
+}
+
 export interface SimulationAnalysis {
+  /** Set when a team filter leaves too few learners to show without identifying someone. */
+  hidden?: boolean;
   overall: Stats;
+  /** Week by week, oldest first, including empty weeks in between. */
+  weekly: WeekStats[];
   scenarios: ScenarioAnalysis[];
+}
+
+/**
+ * Team filters show nothing for fewer learners than this: with a known team, figures for one or
+ * two people would effectively be their individual results, which Builders don't see.
+ */
+export const MIN_TEAM_LEARNERS = 3;
+
+/** Attempts by people in a leader's reporting tree (any depth). Older name-only attempts are matched by name first. */
+export function teamAttempts(attempts: Attempt[], people: Pick<User, "id" | "name" | "managerId" | "active">[], leaderId: string): Attempt[] {
+  const team = reportingTree(people, leaderId);
+  return withUserIds(attempts, people).filter((a) => !!a.userId && team.has(a.userId));
+}
+
+/** Attempts finished between two dates (YYYY-MM-DD, inclusive; either may be left out). */
+export function inDateRange<A extends Pick<Attempt, "finishedAt">>(attempts: A[], from?: string, to?: string): A[] {
+  return attempts.filter((a) => {
+    const day = a.finishedAt.slice(0, 10);
+    return (!from || day >= from) && (!to || day <= to);
+  });
+}
+
+const weekStart = (iso: string) => {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+};
+
+export function weekly(attempts: Attempt[]): WeekStats[] {
+  if (!attempts.length) return [];
+  const byWeek = new Map<string, Attempt[]>();
+  for (const a of attempts) {
+    const w = weekStart(a.finishedAt);
+    byWeek.set(w, [...(byWeek.get(w) ?? []), a]);
+  }
+  const weeks = [...byWeek.keys()].sort();
+  const out: WeekStats[] = [];
+  for (let d = new Date(`${weeks[0]}T00:00:00Z`); d.toISOString().slice(0, 10) <= weeks[weeks.length - 1]; d.setUTCDate(d.getUTCDate() + 7)) {
+    const w = d.toISOString().slice(0, 10);
+    const s = stats(byWeek.get(w) ?? []);
+    out.push({ week: w, attempts: s.attempts, learners: s.learners, avgScore: s.avgScore, passRate: s.passRate });
+  }
+  return out;
 }
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((n, x) => n + x, 0) / xs.length : null);
@@ -246,5 +304,61 @@ export function flowAverage(sim: Pick<Simulation, "scenarios">, scenarioId: stri
 export function analyzeSimulation(sim: Pick<Simulation, "scenarios">, attempts: Attempt[], includeGuided = true): SimulationAnalysis {
   const used = includeGuided ? attempts : attempts.filter((a) => a.mode === "scenario");
   const ids = [...new Set([...sim.scenarios.map((s) => s.id), ...used.map((a) => a.scenarioId)])];
-  return { overall: stats(used), scenarios: ids.map((id) => analyzeScenario(sim, id, used)) };
+  return { overall: stats(used), weekly: weekly(used), scenarios: ids.map((id) => analyzeScenario(sim, id, used)) };
+}
+
+// ------------------------------------------------------------------ CSV export
+
+const pct = (x: number | null | undefined) => (x === null || x === undefined ? "" : String(Math.round(x * 1000) / 10));
+/** One spreadsheet cell; text starting with = + - @ is prefixed so spreadsheets don't run it as a formula. */
+function cell(v: string | number | null | undefined): string {
+  let s = v === null || v === undefined ? "" : String(v);
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+export const CSV_COLUMNS = [
+  "Scenario", "Type", "Item", "Attempts", "Learners", "Completed %", "Passed %", "Mastered %", "Average score",
+  "Average points earned", "Average points lost", "Attempts losing points %", "Met rate %", "Worth (points)",
+] as const;
+
+/**
+ * The course's figures as one CSV, one row per thing measured: the course and each scenario
+ * (rates and averages), each week, each step and penalty (points earned and lost), and each
+ * rubric criterion (worth, met rate, average earned). Aggregate only, like the page.
+ */
+export function performanceCsv(title: string, a: SimulationAnalysis): string {
+  type Row = Partial<Record<(typeof CSV_COLUMNS)[number], string | number | null>>;
+  const rows: Row[] = [];
+  const statRow = (scenario: string, type: string, s: Stats): Row => ({
+    Scenario: scenario, Type: type, Item: "", Attempts: s.attempts, Learners: s.learners, "Completed %": pct(s.completedRate),
+    "Passed %": pct(s.passRate), "Mastered %": pct(s.masteredRate), "Average score": s.avgScore,
+  });
+  rows.push(statRow(title, "Course", a.overall));
+  for (const w of a.weekly) rows.push({ Scenario: title, Type: "Week", Item: w.week, Attempts: w.attempts, Learners: w.learners, "Average score": w.avgScore, "Passed %": pct(w.passRate) });
+  for (const sc of a.scenarios) {
+    rows.push(statRow(sc.title, "Scenario", sc.stats));
+    for (const l of [...sc.flow.steps, ...sc.flow.adjustments]) {
+      rows.push({
+        Scenario: sc.title, Type: l.kind === "step" ? "Step" : "Penalty", Item: l.stepNo !== undefined ? `${l.stepNo}. ${l.label}` : l.label,
+        Attempts: sc.flow.basedOn, "Average points earned": l.avgGained, "Average points lost": l.avgLost, "Attempts losing points %": pct(l.lostShare),
+      });
+    }
+    for (const c of sc.rubric) {
+      rows.push({
+        Scenario: sc.title, Type: "Criterion", Item: c.label, Attempts: c.met + c.notMet + c.awaiting, "Met rate %": pct(c.metRate),
+        "Average points earned": c.avgPointsEarned, "Worth (points)": c.pointsWorth,
+      });
+    }
+  }
+  return [CSV_COLUMNS.join(","), ...rows.map((r) => CSV_COLUMNS.map((c) => cell(r[c])).join(","))].join("\r\n") + "\r\n";
+}
+
+/** The all-courses list as CSV: one row per simulation. */
+export function overviewCsv(rows: { title: string; scenarios: number; stats: Stats }[]): string {
+  const head = ["Simulation", "Scenarios", "Attempts", "Learners", "Completed %", "Passed %", "Mastered %", "Average score"];
+  const body = rows.map((r) =>
+    [r.title, r.scenarios, r.stats.attempts, r.stats.learners, pct(r.stats.completedRate), pct(r.stats.passRate), pct(r.stats.masteredRate), r.stats.avgScore].map(cell).join(","),
+  );
+  return [head.join(","), ...body].join("\r\n") + "\r\n";
 }

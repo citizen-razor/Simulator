@@ -34,8 +34,10 @@ import {
   type Simulation,
   type Step,
   type PenaltyEvent,
+  type AuditEvent,
 } from "./schema";
 import { generateValues, newSeed } from "./random";
+import { parseTableVar } from "./personas";
 
 export type Mode = "open" | "guided" | "scenario";
 export type Tone = "info" | "success" | "error";
@@ -72,6 +74,8 @@ export interface SessionState {
   troubleSteps: string[];
   /** Each error and hint with the step it happened on (for the points breakdown). */
   penalties: PenaltyEvent[];
+  /** Every action and how it was scored (the audit trail; capped at 1000 entries). */
+  log: AuditEvent[];
   /** Seed for this run's random data, and the values it produced. */
   seed: number;
   generated: Record<string, string>;
@@ -119,6 +123,14 @@ export function checkAll(conds: Condition[] | undefined, vars: Record<string, st
 
 export const isField = (el: SimElement) => FIELD_KINDS.includes(el.kind);
 export const fieldVar = (el: SimElement) => el.bindVar || el.id;
+
+/** A clicked table row's columns as <variable>.<column>, e.g. selected_order.status. */
+export function selectedRowVars(el: SimElement, value: string, vars: Record<string, string>): Record<string, string> {
+  const table = parseTableVar(vars[el.tableSource ?? ""]);
+  const row = table?.rows.find((r) => (r[el.rowKey ?? ""] ?? "") === value);
+  if (!table || !row) return {};
+  return Object.fromEntries(table.columns.map((c) => [`${fieldVar(el)}.${c.key}`, row[c.key] ?? ""]));
+}
 export const isVisible = (el: SimElement, vars: Record<string, string>) => checkAll(el.visibleIf, vars);
 
 export function getScreen(sim: Simulation, id: string): Screen | undefined {
@@ -207,18 +219,26 @@ export function createSession(
     touched: [],
     troubleSteps: [],
     penalties: [],
+    log: [],
     seed,
     generated,
   };
 }
 
 /** Call when the trainee changes mode. Keeps all state. */
-export function switchMode(state: SessionState, to: Mode): SessionState {
-  if (to === "guided" && state.scenarioId && !state.finished) return { ...state, assisted: true };
+export function switchMode(state: SessionState, to: Mode, now = Date.now()): SessionState {
+  if (to === "guided" && state.scenarioId && !state.finished) {
+    return { ...state, assisted: true, log: addLog(state, { at: since(state, now), outcome: "guided", screen: "", target: "" }) };
+  }
   return state;
 }
 
-export function takeHint(sim: Simulation, state: SessionState): { state: SessionState; hint: string } {
+const since = (s: SessionState, now: number) => Math.round((now - s.startedAt) / 100) / 10;
+const addLog = (s: SessionState, e: AuditEvent) => (s.log.length >= 1000 ? s.log : [...s.log, e]);
+/** Hide what was typed into password-like fields in the audit trail. */
+const shown = (el: SimElement, value: string) => (/pass|pin\b|secret/i.test(`${el.label} ${el.bindVar ?? ""} ${el.id}`) && value ? "•••" : value.slice(0, 500));
+
+export function takeHint(sim: Simulation, state: SessionState, now = Date.now()): { state: SessionState; hint: string } {
   const step = currentStep(sim, state);
   if (!step) return { state, hint: "" };
   const target = findElement(sim, step.elementId);
@@ -231,6 +251,7 @@ export function takeHint(sim: Simulation, state: SessionState): { state: Session
       hintsUsed: state.hintsUsed + 1,
       troubleSteps: [...state.troubleSteps, step.instruction],
       penalties: [...state.penalties, { kind: "hint", stepNo: state.stepIndex + 1, step: step.instruction }],
+      log: addLog(state, { at: since(state, now), outcome: "hint", screen: getScreen(sim, state.screenId)?.name ?? "", target: "", stepNo: state.stepIndex + 1, step: step.instruction }),
     },
     hint,
   };
@@ -317,7 +338,7 @@ export function interact(
   const feedback: Feedback[] = [];
   const screen = getScreen(sim, prev.screenId);
   const el = screen?.elements.find((e) => e.id === ev.elementId);
-  if (!screen || !el || !isVisible(el, prev.vars) || el.kind === "text" || el.kind === "table") {
+  if (!screen || !el || !isVisible(el, prev.vars) || el.kind === "text" || (el.kind === "table" && (!el.rowKey || ev.type !== "commit"))) {
     return { state: prev, feedback, blocked: false, completedStep: null };
   }
 
@@ -342,10 +363,20 @@ export function interact(
   const isTarget = matches || !!wrongValueStep;
   const hintStep = wrongValueStep ?? step;
   const say = (text: string) => interpolate(text, state.vars);
+  // The audit trail entry for this action; outcome and step are filled in below.
+  const entry: AuditEvent = {
+    at: since(prev, now),
+    outcome: "free",
+    screen: screen.name,
+    target: `"${say(el.label || el.id)}"`,
+    value: ev.type === "commit" ? shown(el, ev.value) : undefined,
+  };
+  const expected = (st: Step | null | undefined) => (st ? { stepNo: prev.stepIndex + 1, step: say(st.instruction) } : {});
 
   if (judging && step && !matches) {
     if (fieldCommit && !isTarget) {
       // Filling in a different field is never penalised; it may satisfy a later step.
+      Object.assign(entry, { outcome: "ignored", ...expected(step) });
       if (mode === "guided") feedback.push({ tone: "info", text: `Next: ${say(step.instruction)}` });
     } else if (mode === "guided") {
       const text = isTarget
@@ -359,6 +390,7 @@ export function interact(
         mistakes: [...prev.mistakes, mistake],
         troubleSteps: [...prev.troubleSteps, (isTarget ? hintStep! : step).instruction],
         penalties: [...prev.penalties, { kind: "error" as const, stepNo: prev.stepIndex + 1, step: (isTarget ? hintStep! : step).instruction }],
+        log: addLog(prev, { ...entry, outcome: isTarget ? ("wrong-value" as const) : ("error" as const), ...expected(isTarget ? hintStep : step) }),
       };
       if (fieldCommit) {
         // Keep what they typed so the field doesn't reset, but don't advance.
@@ -370,6 +402,7 @@ export function interact(
       state.errors++;
       state.troubleSteps = [...state.troubleSteps, (isTarget ? hintStep! : step).instruction];
       state.penalties = [...state.penalties, { kind: "error", stepNo: prev.stepIndex + 1, step: (isTarget ? hintStep! : step).instruction }];
+      Object.assign(entry, { outcome: isTarget ? "wrong-value" : "error", ...expected(isTarget ? hintStep : step) });
       state.mistakes = [
         ...state.mistakes,
         isTarget ? `Wrong value in ${describe(el)} (step: ${say(hintStep!.instruction)})` : `Used ${describe(el)} when the step was: ${say(step.instruction)}`,
@@ -379,7 +412,7 @@ export function interact(
 
   // Apply the interaction to the simulated system.
   if (ev.type === "commit") {
-    state.vars = { ...state.vars, [fieldVar(el)]: ev.value };
+    state.vars = { ...state.vars, [fieldVar(el)]: ev.value, ...(el.kind === "table" ? selectedRowVars(el, ev.value, state.vars) : {}) };
     if (!state.touched.includes(el.id)) state.touched = [...state.touched, el.id];
   }
   runRules(el, state, sim, feedback);
@@ -392,11 +425,13 @@ export function interact(
     for (const p of matchedPaths) progress[p.id] = (progress[p.id] ?? 0) + 1;
     const lead = matchedPaths.find((p) => p.id === state.leadPath) ?? matchedPaths[0];
     completedStep = lead.steps[(state.pathProgress[lead.id] ?? 0)];
+    Object.assign(entry, { outcome: "step", stepNo: (state.pathProgress[lead.id] ?? 0) + 1, step: say(completedStep.instruction) });
     state.pathProgress = progress;
     state.leadPath = lead.id;
     state.stepIndex = progress[lead.id];
     if (mode === "guided") feedback.push({ tone: "success", text: "Correct." });
   }
+  state.log = addLog(prev, entry);
   if (judging) settle(sim, state, now);
   if (state.completed && !prev.completed) {
     feedback.push({ tone: "success", text: "Scenario complete!" });

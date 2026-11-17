@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { lintSimulation, newId } from "../../shared/engine";
-import { duplicateElement, duplicateScreen, moveScreen, renameElement, renameScreen, renameVariable } from "../../shared/refactor";
-import { ElementKinds, FIELD_KINDS, type ElementKind, type Rect, type SimElement, type Simulation } from "../../shared/schema";
+import { duplicateElement, duplicateScreen, effectiveRenames, moveScreen, recordRename, renameElement, renameScreen, renameVariable, type Rename } from "../../shared/refactor";
+import { ElementKinds, FIELD_KINDS, SimulationSchema, type ElementKind, type Rect, type SimElement, type Simulation } from "../../shared/schema";
+import { sameToolParts, toolParts } from "../../shared/tools";
+import type { ImpactRow } from "../../shared/health";
 import { api, exportUrl, streamAi, type AiProgress } from "../api";
 import { ElementInspector, ExtraVariablesContext, ScenarioInspector, ScreenInspector, VariablesPanel } from "../components/Inspector";
 import { personaVariableNames, type PersonaLibrary } from "../../shared/personas";
@@ -37,7 +39,14 @@ const isTyping = () => {
   return t === "INPUT" || t === "TEXTAREA" || t === "SELECT";
 };
 
-export default function Editor({ id }: { id: string }) {
+/**
+ * Edits a simulation (#/edit/<id>): its tool's screens plus its own scenarios and settings.
+ * With `toolId` (#/tool/<id>), edits just a tool from the Tool library: screens, controls and
+ * variables, no scenarios. Either way, a change to the screens is a change to the tool, so it
+ * reaches every simulation using it; Save first runs an impact check and shows what it affects.
+ */
+export default function Editor({ id, toolId }: { id: string; toolId?: string }) {
+  const toolMode = !!toolId;
   const [sim, setSim] = useState<Simulation | null>(null);
   const [savedJson, setSavedJson] = useState("");
   const [error, setError] = useState("");
@@ -56,14 +65,30 @@ export default function Editor({ id }: { id: string }) {
   const [aligning, setAligning] = useState(false);
   const [alignMsg, setAlignMsg] = useState<{ screenId: string; text: string } | null>(null);
   const undo = useRef<{ stack: Simulation[]; lastKey: string; lastAt: number }>({ stack: [], lastKey: "", lastAt: 0 });
+  /** Simulations on this tool (to say where screen changes go). */
+  const [toolUsers, setToolUsers] = useState<{ id: string; title: string }[] | null>(null);
+  /**
+   * Renames of the tool's controls, screens and variables since the last save. They're sent with
+   * the save so every other simulation on the tool follows them (shared/refactor.ts).
+   */
+  const renames = useRef<Rename[]>([]);
+  const noteRename = (r: Rename) => {
+    renames.current = recordRename(renames.current, r);
+  };
+  /** Shown before saving a tool change: what it affects. */
+  const [impact, setImpact] = useState<{ rows: ImpactRow[]; toolName: string } | null>(null);
 
   useEffect(() => {
     api.status().then((s) => setAiAvailable(s.aiConfigured)).catch(() => undefined);
     api.taxonomy().then(setTaxonomy).catch(() => setTaxonomy({ topics: [] }));
     api.grading().then((g) => setSchemes(g.schemes)).catch(() => setSchemes([]));
     api.personas().then(setPersonaLib).catch(() => setPersonaLib({ templates: [], personas: [] }));
-    api
-      .get(id)
+    (toolMode
+      ? api.getTool(id).then((t) =>
+          SimulationSchema.parse({ id: t.id, title: t.name, description: t.description, startScreenId: t.startScreenId, variables: t.variables, screens: t.screens, toolId: t.id, toolName: t.name, toolVersion: t.version }),
+        )
+      : api.get(id)
+    )
       .then((s) => {
         setSim(s);
         setSavedJson(JSON.stringify(s));
@@ -75,7 +100,11 @@ export default function Editor({ id }: { id: string }) {
         else setDrawKind("hotspot");
       })
       .catch((e) => setError(e.message));
-  }, [id]);
+  }, [id, toolMode]);
+  useEffect(() => {
+    if (!sim?.toolId) return;
+    api.tools().then((ts) => setToolUsers(ts.find((t) => t.id === sim.toolId)?.usedBy ?? [])).catch(() => undefined);
+  }, [sim?.toolId]);
 
   /** Remember `prev` for Undo. Rapid edits with the same key (e.g. typing in one field) share one undo entry. */
   const pushUndo = (prev: Simulation, key: string) => {
@@ -117,12 +146,21 @@ export default function Editor({ id }: { id: string }) {
   }, []);
   const issues = useMemo(() => (sim ? lintSimulation(sim) : []), [sim]);
 
-  const save = useCallback(async (): Promise<boolean> => {
+  /** Write it: a tool goes to the Tool library; a simulation is split by the server (screens → its tool). */
+  const commit = useCallback(async (): Promise<boolean> => {
     if (!sim) return false;
     setSaving(true);
     setError("");
+    setImpact(null);
     try {
-      const saved = await api.save(sim);
+      let saved: Simulation;
+      if (toolMode) {
+        const t = await api.saveTool({ id: sim.id, name: sim.title, description: sim.description, ...toolParts(sim), version: sim.toolVersion, renames: renames.current });
+        saved = { ...sim, toolName: t.name, toolVersion: t.version };
+      } else {
+        saved = await api.save(sim, renames.current);
+      }
+      renames.current = [];
       setSim(saved);
       setSavedJson(JSON.stringify(saved));
       return true;
@@ -132,7 +170,32 @@ export default function Editor({ id }: { id: string }) {
     } finally {
       setSaving(false);
     }
-  }, [sim]);
+  }, [sim, toolMode]);
+
+  /**
+   * Save. If the screens, controls or variables changed and the tool is shared (or the change
+   * would break a scenario), first show what it affects and wait for the builder to confirm.
+   */
+  const save = useCallback(async (): Promise<boolean> => {
+    if (!sim) return false;
+    const before = savedJson ? (JSON.parse(savedJson) as Simulation) : null;
+    if (!sim.toolId || !before || sameToolParts(before, sim)) return commit();
+    setSaving(true);
+    setError("");
+    try {
+      const r = await api.toolImpact(sim.toolId, toolParts(sim), renames.current);
+      const others = r.rows.filter((x) => x.simulationId !== sim.id);
+      const breaks = r.rows.some((x) => x.breaks.length || x.newIssues.length);
+      if (!others.length && !breaks) return await commit();
+      setImpact({ rows: r.rows, toolName: r.tool.name });
+      return false;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [sim, savedJson, commit]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => keyHandler.current?.(e);
@@ -347,15 +410,19 @@ export default function Editor({ id }: { id: string }) {
   const extraVariables = (() => {
     const names: string[] = [];
     const tables: string[] = [];
+    const tableColumns: Record<string, { key: string; label: string }[]> = {};
     const assigned = [...sim.personas, ...sim.scenarios.flatMap((sc) => sc.personaOverrides.filter((o): o is typeof o & { personaId: string } => !!o.personaId))];
     for (const link of assigned) {
       const persona = personaLib?.personas.find((p) => p.id === link.personaId);
       if (!persona) continue;
       const tpl = personaLib?.templates.find((t) => t.id === persona.templateId) ?? null;
       names.push(...personaVariableNames(link.role, persona, tpl));
-      for (const t of tpl?.tables ?? []) tables.push(`${link.role}.${t.key}`);
+      for (const t of tpl?.tables ?? []) {
+        tables.push(`${link.role}.${t.key}`);
+        tableColumns[`${link.role}.${t.key}`] = t.columns.map((c) => ({ key: c.key, label: c.label }));
+      }
     }
-    return { names: [...new Set(names)], tables: [...new Set(tables)] };
+    return { names: [...new Set(names)], tables: [...new Set(tables)], tableColumns };
   })();
 
   const inspector = (() => {
@@ -369,8 +436,10 @@ export default function Editor({ id }: { id: string }) {
           onDuplicate={duplicateSelected}
           onCopy={copySelected}
           onRename={(next) => {
-            const out = change((d) => renameElement(d, selectedEl.id, next));
+            const from = selectedEl.id;
+            const out = change((d) => renameElement(d, from, next));
             if (out instanceof Error) return out.message;
+            noteRename({ kind: "element", from, to: next });
             setSel({ kind: "element", id: next });
             return null;
           }}
@@ -395,7 +464,7 @@ export default function Editor({ id }: { id: string }) {
             personaLib={personaLib}
             initialPathId={new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("path") ?? undefined}
             onRecord={(pathId) => goPlay(`/play/${sim.id}?record=${sc.id}&path=${pathId}`)}
-            onPlay={(mode) => goPlay(`/play/${sim.id}?mode=${mode}&scenario=${sc.id}`)}
+            onPlay={(mode) => goPlay(`/play/${sim.id}?mode=${mode}&scenario=${sc.id}&test=1`)}
           />
         );
       }
@@ -405,10 +474,12 @@ export default function Editor({ id }: { id: string }) {
         <VariablesPanel
           sim={sim}
           onChange={(v) => update((d) => { d.variables = v; }, "vars")}
-          onRandomChange={(r) => update((d) => { d.randomData = r; }, "random")}
+          onRandomChange={toolMode ? undefined : (r) => update((d) => { d.randomData = r; }, "random")}
           onRename={(oldName, next) => {
             const out = change((d) => renameVariable(d, oldName, next));
-            return out instanceof Error ? out.message : null;
+            if (out instanceof Error) return out.message;
+            noteRename({ kind: "variable", from: oldName, to: next });
+            return null;
           }}
         />
       );
@@ -436,8 +507,10 @@ export default function Editor({ id }: { id: string }) {
         onMakeStart={() => update((d) => { d.startScreenId = screen.id; })}
         onSelectElement={(eid) => setSel({ kind: "element", id: eid })}
         onRename={(next) => {
-          const out = change((d) => renameScreen(d, screen.id, next));
+          const from = screen.id;
+          const out = change((d) => renameScreen(d, from, next));
           if (out instanceof Error) return out.message;
+          noteRename({ kind: "screen", from, to: next });
           setScreenId(next);
           return null;
         }}
@@ -456,17 +529,25 @@ export default function Editor({ id }: { id: string }) {
     <ExtraVariablesContext.Provider value={extraVariables}>
     <div className="editor">
       <div className="editor-bar">
-        <a href="#/" className="link-btn">← Library</a>
-        <b className="editor-title">{sim.title}</b>
+        {toolMode ? <a href="#/libraries/tools" className="link-btn">← Tools</a> : <a href="#/" className="link-btn">← Library</a>}
+        {toolMode ? (
+          <input className="editor-title-input" value={sim.title} aria-label="Tool name" onChange={(e) => update((d) => { d.title = e.target.value; }, "tool-name")} />
+        ) : (
+          <b className="editor-title">{sim.title}</b>
+        )}
+        {toolMode && <span className="badge">Tool</span>}
         {dirty ? <span className="badge warn">Unsaved</span> : <span className="muted small">Saved</span>}
         <span className="spacer" />
         {issues.length > 0 && (
           <button className="btn sm ghost warn" onClick={() => setShowIssues((v) => !v)}>⚠ {issues.length} issue{issues.length > 1 ? "s" : ""}</button>
         )}
         <button className="btn sm ghost" onClick={doUndo} disabled={!undo.current.stack.length} title="Undo (Ctrl+Z)">↶ Undo</button>
+        {!toolMode && <>
+        <a className="btn sm ghost" href={`#/quality/${sim.id}`} onClick={(e) => { if (dirty && !confirm("Leave without saving your changes?")) e.preventDefault(); }}>Quality</a>
         <a className="btn sm ghost" href={`#/performance/${sim.id}`} onClick={(e) => { if (dirty && !confirm("Leave without saving your changes?")) e.preventDefault(); }}>Performance</a>
         <a className="btn sm ghost" href={exportUrl(sim.id)} download title={dirty ? "Exports the last saved version. Save first to include recent changes." : "Download as a file (includes images)"}>⤓ Export</a>
-        <button className="btn sm" onClick={() => goPlay(`/play/${sim.id}`)}>▶ Play</button>
+        <button className="btn sm" onClick={() => goPlay(`/play/${sim.id}?test=1`)} title="Play as a test: scoring shown live, nothing saved">▶ Test</button>
+        </>}
         <button className="btn sm primary" onClick={save} disabled={!dirty || saving}>{saving ? "Saving…" : "Save"}</button>
       </div>
       {showIssues && issues.length > 0 && (
@@ -476,7 +557,14 @@ export default function Editor({ id }: { id: string }) {
 
       <div className="editor-body">
         <aside className="editor-left">
-          <button className={`nav-item ${sel.kind === "settings" ? "on" : ""}`} onClick={() => setSel({ kind: "settings" })}>⚙ Settings</button>
+          {!toolMode && <button className={`nav-item ${sel.kind === "settings" ? "on" : ""}`} onClick={() => setSel({ kind: "settings" })}>⚙ Settings</button>}
+          {sim.toolId && (
+            <p className="tool-note small">
+              {toolMode ? "Used by " : <>Screens come from the tool <a href={`#/tool/${sim.toolId}`}>{sim.toolName}</a>, used by </>}
+              {toolUsers === null ? "…" : `${toolUsers.length} simulation${toolUsers.length === 1 ? "" : "s"}`}. Changes to screens, controls and
+              variables apply to all of {toolUsers && toolUsers.length === 1 ? "it" : "them"}.
+            </p>
+          )}
           <button className={`nav-item ${sel.kind === "variables" ? "on" : ""}`} onClick={() => setSel({ kind: "variables" })}>
             𝑥 Variables <span className="count">{sim.variables.length}</span>
           </button>
@@ -514,6 +602,7 @@ export default function Editor({ id }: { id: string }) {
               <input type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && addScreen(e.target.files[0])} />
             </label>
           </div>
+          {!toolMode && <>
           <h4>Scenarios</h4>
           {sim.scenarios.map((s) => (
             <button key={s.id} className={`nav-item ${sel.kind === "scenario" && sel.id === s.id ? "on" : ""}`} onClick={() => setSel({ kind: "scenario", id: s.id })}>
@@ -532,6 +621,7 @@ export default function Editor({ id }: { id: string }) {
           >
             + scenario
           </button>
+          </>}
 
           {aiAvailable && (
             <div className="ai-box">
@@ -588,6 +678,52 @@ export default function Editor({ id }: { id: string }) {
 
         <aside className="editor-right">{inspector}</aside>
       </div>
+      {impact && (
+        <div className="modal-backdrop">
+          <div className="modal impact" role="dialog" aria-label="Changes to a shared tool">
+            <h2>Update "{impact.toolName}" everywhere?</h2>
+            <p>
+              You changed the tool's screens, controls or variables. This updates {impact.rows.length === 1 ? "the 1 simulation" : `all ${impact.rows.length} simulations`} that use it.
+              Every scenario was played through with your changes:
+            </p>
+            {effectiveRenames(renames.current, sim).length > 0 && (
+              <p className="small">
+                <b>Renamed:</b>{" "}
+                {effectiveRenames(renames.current, sim).map((r, i) => (
+                  <span key={i}>{i > 0 && ", "}<code>{r.from}</code> → <code>{r.to}</code> ({r.kind === "element" ? "control" : r.kind})</span>
+                ))}
+                . Every simulation's scenarios, grading checks and AI customers are updated to the new names.
+              </p>
+            )}
+            <ul className="impact-list">
+              {impact.rows.map((r) => (
+                <li key={r.simulationId}>
+                  <b>{r.title}</b>
+                  {r.simulationId === sim.id && !toolMode && <span className="muted small"> (this simulation)</span>}{" "}
+                  {r.breaks.length || r.newIssues.length ? (
+                    <span className="status bad">✕ {r.breaks.length + r.newIssues.length} problem{r.breaks.length + r.newIssues.length === 1 ? "" : "s"}</span>
+                  ) : (
+                    <span className="status good">✓ {r.checked ? `All ${r.checked} path${r.checked === 1 ? "" : "s"} still play through` : "No scenarios to check"}</span>
+                  )}
+                  {(r.breaks.length > 0 || r.newIssues.length > 0) && (
+                    <ul className="small">
+                      {r.breaks.map((b, i) => <li key={i}>{b.scenario} · {b.path}: {b.detail}</li>)}
+                      {r.newIssues.map((x) => <li key={x}>{x}</li>)}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div className="row">
+              <button className={`btn ${impact.rows.some((r) => r.breaks.length || r.newIssues.length) ? "danger" : "primary"}`} disabled={saving} onClick={() => commit()}>
+                {impact.rows.some((r) => r.breaks.length || r.newIssues.length) ? "Save anyway" : `Save for all ${impact.rows.length}`}
+              </button>
+              <button className="btn" onClick={() => setImpact(null)}>Go back</button>
+            </div>
+            <p className="muted small">Past attempts keep their scores and audit trails.</p>
+          </div>
+        </div>
+      )}
     </div>
     </ExtraVariablesContext.Provider>
     </ReloadPersonasContext.Provider>

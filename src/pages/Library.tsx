@@ -141,7 +141,7 @@ export default function Library() {
                 </div>
               )}
               <p className="meta">
-                {s.screens} screen{s.screens === 1 ? "" : "s"} · {s.scenarios} scenario{s.scenarios === 1 ? "" : "s"}
+                {s.scenarios} scenario{s.scenarios === 1 ? "" : "s"}{auth.isBuilder && <> · tool: {s.toolName}</>}
               </p>
               <div className="row">
                 <a className="btn primary sm" href={`#/play/${s.id}`}>Play</a>
